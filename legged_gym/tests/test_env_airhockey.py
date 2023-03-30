@@ -37,10 +37,13 @@ from legged_gym.envs import *
 from legged_gym.utils import get_args, export_policy_as_jit, task_registry, Logger
 
 import torch
-import time
 
-render_only = True
+import pkg_resources
 
+table_mjcf = pkg_resources.resource_filename('air_hockey_challenge', '/environments/data/table.xml')
+single_mjcf = pkg_resources.resource_filename('air_hockey_challenge', '/environments/data/planar/single.xml')
+
+print(table_mjcf, single_mjcf)
 
 def test_env(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
@@ -49,14 +52,9 @@ def test_env(args):
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
-    # env.reset()
-    if render_only:
-        while True:
-            env.render()
-    else:
-        for i in range(int(10 * env.max_episode_length)):
-            actions = 0. * torch.ones(env.num_envs, env.num_actions, device=env.device)
-            obs, _, rew, done, info = env.step(actions)
+    for i in range(int(10 * env.max_episode_length)):
+        actions = 0. * torch.ones(env.num_envs, env.num_actions, device=env.device)
+        obs, _, rew, done, info = env.step(actions)
     print("Done")
 
 
