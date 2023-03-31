@@ -39,7 +39,7 @@ from legged_gym.utils import get_args, export_policy_as_jit, task_registry, Logg
 import torch
 import time
 
-render_only = True
+render_only = False
 
 
 def test_env(args):
@@ -49,7 +49,7 @@ def test_env(args):
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
-    # env.reset()
+    env.reset()
     if render_only:
         while True:
             env.render()
