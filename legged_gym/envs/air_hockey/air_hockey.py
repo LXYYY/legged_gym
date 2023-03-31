@@ -1,22 +1,14 @@
-import random
-
-import numpy as np
 import os
 
 from isaacgym.torch_utils import *
 from isaacgym import gymtorch, gymapi, gymutil
 
 from legged_gym import LEGGED_GYM_ROOT_DIR
-from legged_gym.envs.base.base_task import BaseTask
-from legged_gym.utils.terrain import Terrain
-from legged_gym.utils.math import quat_apply_yaw, wrap_to_pi, torch_rand_sqrt_float
-from legged_gym.utils.helpers import class_to_dict
-from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg
 from legged_gym.envs.base.legged_robot import LeggedRobot
 from .air_hockey_config import AirHockeyCfg
 
 
-class AirHockey(LeggedRobot):
+class AirHockeyBase(LeggedRobot):
     class MujocoWrapper:
         def __init__(self, base_env):
             pass
@@ -259,5 +251,3 @@ class AirHockey(LeggedRobot):
         """
         self.time_out_buf = self.episode_length_buf > self.max_episode_length  # no terminal reward for time-outs
         self.reset_buf |= self.time_out_buf
-
-
