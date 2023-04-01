@@ -3,7 +3,7 @@ import os
 import numpy as np
 import torch
 from air_hockey_challenge.environments.planar.base import AirHockeyBase
-from air_hockey_challenge.environments.position_control_wrapper import PositionControl
+from air_hockey_challenge.environments.position_control_wrapper import PositionControlPlanar
 from isaacgym import gymtorch, gymapi
 from isaacgym.torch_utils import *
 from legged_gym import LEGGED_GYM_ROOT_DIR
@@ -29,7 +29,7 @@ class AirHockeyBase(LeggedRobot):
 
         super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
 
-    def clone_mujoco_controller(self, controller: PositionControl):
+    def clone_mujoco_controller(self, controller: PositionControlPlanar):
         # clone the mujoco controller and delete the original to reduce memory usage
         self.base_interp_traj = controller.interpolate_trajectory
         self.base_enforce_safety_limits = controller.enforce_safety_limits
@@ -43,7 +43,8 @@ class AirHockeyBase(LeggedRobot):
         self._timestep = self.dt
         self._n_intermediate_steps = self.cfg.control.decimation
         self.jerk = controller.jerk
-        del controller
+        self.get_reset_puck_pos = controller.get_reset_puck_pos
+        self.hit_range = controller.hit_range
 
     def interpolate_trajectory(self, action):
         action = action.reshape((2, self._num_env_joints))
@@ -169,17 +170,12 @@ class AirHockeyBase(LeggedRobot):
         # self.env_info['joint_pos_ids'] = [6, 7, 8]
         # self.env_info['joint_vel_ids'] = [9, 10, 11]
 
-        obs_puck_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.obs_puck_pos_idx, 0]
-        obs_puck_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.obs_puck_pos_idx, 1]
+        obs_puck_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.puck_pos_idx, 0]
+        obs_puck_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.puck_pos_idx, 1]
         obs_joint_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 0]
         obs_joint_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 1]
 
         self.obs_buf = torch.cat((obs_puck_pos, obs_puck_vel, obs_joint_pos, obs_joint_vel), dim=1)
-
-    def get_puck(self, obs):
-        puck_pos = None
-        puck_vel = None
-        return puck_pos, puck_vel
 
     def _init_buffers(self):
         """ Initialize torch tensors which will contain simulation states and processed quantities
@@ -315,13 +311,13 @@ class AirHockeyBase(LeggedRobot):
         self.num_dofs = len(self.dof_names)
 
         # get the dof indices of the obs
-        self.obs_puck_pos_idx = np.zeros(len(self.cfg.init_state.puck_pos), dtype=np.int32)
+        self.puck_pos_idx = np.zeros(len(self.cfg.init_state.puck_pos), dtype=np.int32)
         for name in self.cfg.init_state.puck_pos.keys():
-            self.obs_puck_pos_idx[self.cfg.init_state.puck_pos[name]] = int(dof_dict[name])
+            self.puck_pos_idx[self.cfg.init_state.puck_pos[name]] = int(dof_dict[name])
 
-        self.obs_puck_vel_idx = np.zeros(len(self.cfg.init_state.puck_vel), dtype=np.int32)
+        self.puck_vel_idx = np.zeros(len(self.cfg.init_state.puck_vel), dtype=np.int32)
         for name in self.cfg.init_state.puck_vel.keys():
-            self.obs_puck_vel_idx[self.cfg.init_state.puck_vel[name]] = int(dof_dict[name])
+            self.puck_vel_idx[self.cfg.init_state.puck_vel[name]] = int(dof_dict[name])
 
         feet_names = [s for s in body_names if self.cfg.asset.foot_name in s]
         penalized_contact_names = []
@@ -444,6 +440,10 @@ class AirHockeyBase(LeggedRobot):
         # this commented line is used to randomize the initial position of the robot
         self.dof_pos[
             env_ids] = self.default_dof_pos  # * torch_rand_float(0.5, 1.5, (len(env_ids), self.num_dof), device=self.device
+        # reset puck pos
+        reset_puck_pos = self.get_reset_puck_pos(self.hit_range)
+        self.dof_pos[env_ids, self.puck_pos_idx[:2]] = torch.tensor(reset_puck_pos, device=self.device).to(
+            torch.float32)
         self.dof_vel[env_ids] = 0.
 
         env_ids_int32 = env_ids.to(dtype=torch.int32)
@@ -451,14 +451,17 @@ class AirHockeyBase(LeggedRobot):
                                               gymtorch.unwrap_tensor(self.dof_state),
                                               gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
 
-    def reset(self):
-        super(AirHockeyBase, self).reset()
+        print("reset puck pos: ", reset_puck_pos)
 
+    def reset(self):
         # TODO: reset prev_pos, prev_vel, prev_acc, self.prev_controller_cmd_pos
+
+        return super(AirHockeyBase, self).reset()
 
     def check_termination(self):
         """ Check if environments need to be reset
         """
+        self.reset_buf.zero_()
         self.time_out_buf = self.episode_length_buf > self.max_episode_length  # no terminal reward for time-outs
         self.reset_buf |= self.time_out_buf
 
