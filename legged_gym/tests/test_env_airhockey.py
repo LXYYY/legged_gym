@@ -38,23 +38,31 @@ from legged_gym.utils import get_args, export_policy_as_jit, task_registry, Logg
 
 import torch
 
-import pkg_resources
+render_only = False
 
-table_mjcf = pkg_resources.resource_filename('air_hockey_challenge', '/environments/data/table.xml')
-single_mjcf = pkg_resources.resource_filename('air_hockey_challenge', '/environments/data/planar/single.xml')
-
-print(table_mjcf, single_mjcf)
 
 def test_env(args):
+    args.task = "air_hockey_planar"
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 10)
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
-    for i in range(int(10 * env.max_episode_length)):
-        actions = 0. * torch.ones(env.num_envs, env.num_actions, device=env.device)
-        obs, _, rew, done, info = env.step(actions)
+
+    from air_hockey_challenge.framework.air_hockey_challenge_wrapper import AirHockeyChallengeWrapper
+    env_wp = AirHockeyChallengeWrapper(env="3dof-hit", action_type="position_velocity", interpolation_order=3,
+                                       debug=False)
+    env.clone_mujoco_controller(env_wp.base_env)
+
+    env.reset()
+    if render_only:
+        while True:
+            env.render()
+    else:
+        for i in range(int(10 * env.max_episode_length)):
+            actions = 0. * torch.ones(env.num_envs, env.num_actions, device=env.device)
+            obs, _, rew, done, info = env.step(actions)
     print("Done")
 
 

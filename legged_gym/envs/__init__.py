@@ -51,3 +51,4 @@ task_registry.register("anymal_b", Anymal, AnymalBRoughCfg(), AnymalBRoughCfgPPO
 task_registry.register("a1", LeggedRobot, A1RoughCfg(), A1RoughCfgPPO())
 task_registry.register("cassie", Cassie, CassieRoughCfg(), CassieRoughCfgPPO())
 task_registry.register("air_hockey_planar", AirHockeyBase, AirHockeyPlanarCfg(), AirHockeyPlanarCfgPPO())
+# task_registry.register("air_hockey_planar_hit", PlanarPositionHit, AirHockeyPlanarCfg(), AirHockeyPlanarCfgPPO())

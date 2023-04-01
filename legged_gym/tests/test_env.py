@@ -55,7 +55,7 @@ def test_env(args):
             env.render()
     else:
         for i in range(int(10 * env.max_episode_length)):
-            actions = 0. * torch.ones(env.num_envs, env.num_actions, device=env.device)
+            actions = 0. * torch.zeros(env.num_envs, env.num_actions, device=env.device)
             obs, _, rew, done, info = env.step(actions)
     print("Done")
 
