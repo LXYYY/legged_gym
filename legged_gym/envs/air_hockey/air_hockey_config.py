@@ -19,13 +19,15 @@ class AirHockeyCfg(LeggedRobotCfg):
     class terrain(LeggedRobotCfg.terrain):
         mesh_type = 'plane'
 
-    class asset_table(LeggedRobotCfg.asset):
-        file = ''
-        name = 'table'
-
-    class asset_robot(LeggedRobotCfg.asset):
-        file = ''
-        name = 'robot'
+    class asset(LeggedRobotCfg.asset):
+        # xml's color not working somehow
+        colors = {
+            'puck': [1, 0, 0],
+            'rim': [0, 0, 1],
+            'table_surface': [0, 1, 0],
+            # gold
+            'planar_robot_1/body_ee': [0.8, 0.8, 0.2],
+        }
 
     class sim(LeggedRobotCfg.sim):
         dt = 0.001

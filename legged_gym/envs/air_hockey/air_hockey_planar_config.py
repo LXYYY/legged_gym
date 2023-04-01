@@ -4,12 +4,8 @@ import pkg_resources
 
 
 class AirHockeyPlanarCfg(AirHockeyCfg):
-    class asset(AirHockeyCfg.asset_robot):
+    class asset(AirHockeyCfg.asset):
         file = pkg_resources.resource_filename('air_hockey_challenge', 'environments/data/planar/single_isaac.xml')
-
-    class asset_table(AirHockeyCfg.asset_table):
-        file = pkg_resources.resource_filename('air_hockey_challenge', 'environments/data/planar/table_isaac.xml')
-
 
     class rewards(AirHockeyCfg.rewards):
         class scales:

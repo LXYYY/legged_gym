@@ -352,18 +352,25 @@ class AirHockeyBase(LeggedRobot):
             self.gym.set_actor_dof_properties(env_handle, actor_handle, dof_props)
             body_props = self.gym.get_actor_rigid_body_properties(env_handle, actor_handle)
             # body_names = self._process_rigid_body_props(body_props, i)
-            body_names = self._process_rigid_body_props(body_props, i, self.body_names)
+            body_props = self._process_rigid_body_props(body_props, i, self.body_names)
             self.gym.set_actor_rigid_body_properties(env_handle, actor_handle, body_props, recomputeInertia=True)
-            self.envs.append(env_handle)
-            self.actor_handles.append(actor_handle)
 
-        ctrl_actor_idx = np.zeros(len(self.cfg.init_state.control_joint_idx.keys()), dtype=np.int32)
-        # iterate all actuator joint names
-        for i in range(self.gym.get_asset_actuator_count(robot_asset)):
-            joint_name = self.gym.get_asset_actuator_joint_name(robot_asset, i)
-            if joint_name in self.cfg.init_state.control_joint_idx.keys():
-                ctrl_actor_idx[self.cfg.init_state.control_joint_idx[joint_name]] = i
-        self.ctrl_actor_idx = torch.from_numpy(ctrl_actor_idx).to(torch.int32).to(self.device)
+            # set body colors
+            for body_name in self.cfg.asset.colors.keys():
+                body_idx = body_names.index(body_name)
+                self.gym.set_rigid_body_color(env_handle, actor_handle, body_idx, gymapi.MESH_VISUAL_AND_COLLISION,
+                                              gymapi.Vec3(*self.cfg.asset.colors[body_name]))
+
+                self.envs.append(env_handle)
+                self.actor_handles.append(actor_handle)
+
+                ctrl_actor_idx = np.zeros(len(self.cfg.init_state.control_joint_idx.keys()), dtype=np.int32)
+                # iterate all actuator joint names
+                for i in range(self.gym.get_asset_actuator_count(robot_asset)):
+                    joint_name = self.gym.get_asset_actuator_joint_name(robot_asset, i)
+                if joint_name in self.cfg.init_state.control_joint_idx.keys():
+                    ctrl_actor_idx[self.cfg.init_state.control_joint_idx[joint_name]] = i
+                self.ctrl_actor_idx = torch.from_numpy(ctrl_actor_idx).to(torch.int32).to(self.device)
 
     def _process_rigid_shape_props(self, rigid_shape_props_asset, env_id):
         # TODO read friction
