@@ -37,26 +37,39 @@ from legged_gym.envs import *
 from legged_gym.utils import get_args, export_policy_as_jit, task_registry, Logger
 
 import torch
-import time
 
 render_only = False
 
 
 def test_env(args):
+    args.task = "air_hockey_planar"
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 10)
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
+
+    from air_hockey_challenge.framework.air_hockey_challenge_wrapper import AirHockeyChallengeWrapper
+    env_wp = AirHockeyChallengeWrapper(env="3dof-hit", action_type="position_velocity", interpolation_order=3,
+                                       debug=False)
+    env.clone_mujoco_controller(env_wp.base_env)
+
     env.reset()
     if render_only:
         while True:
             env.render()
     else:
+        import time
+        elapsed_time = 0
         for i in range(int(10 * env.max_episode_length)):
-            actions = 0. * torch.zeros(env.num_envs, env.num_actions, device=env.device)
+            start_time = time.time()
+            actions = 0. * torch.ones(env.num_envs, env.num_actions, device=env.device)
             obs, _, rew, done, info = env.step(actions)
+            elapsed_time += time.time() - start_time
+            if i % 10 == 0:
+                print("frame rate: ", 1.0 / elapsed_time)
+                elapsed_time = 0
     print("Done")
 
 
