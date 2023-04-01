@@ -26,7 +26,7 @@ class AirHockeyPlanarCfg(AirHockeyCfg):
             'planar_robot_1/joint_2': 1,
             'planar_robot_1/joint_3': 2
         }
-        pos = [0, 0, 0]
+        pos = [0, 0, 0.02]
 
     class rewards(AirHockeyCfg.rewards):
         class scales:

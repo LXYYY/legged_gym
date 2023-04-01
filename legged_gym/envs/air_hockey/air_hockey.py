@@ -45,6 +45,7 @@ class AirHockeyBase(LeggedRobot):
         self._timestep = self.dt
         self._n_intermediate_steps = self.cfg.control.decimation
         self.jerk = controller.jerk
+        del controller
 
     def interpolate_trajectory(self, action):
         action = action.reshape((2, self._num_env_joints))
@@ -355,7 +356,7 @@ class AirHockeyBase(LeggedRobot):
         for prop, name in zip(body_props, names):
             # if name starts with table
             if name.startswith('table'):
-                prop.mass = 50000
+                prop.mass = 5000
         # return super(AirHockeyBase, self)._process_rigid_body_props(body_props, env_id)
         return body_props
 

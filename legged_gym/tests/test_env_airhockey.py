@@ -60,9 +60,16 @@ def test_env(args):
         while True:
             env.render()
     else:
+        import time
+        elapsed_time = 0
         for i in range(int(10 * env.max_episode_length)):
+            start_time = time.time()
             actions = 0. * torch.ones(env.num_envs, env.num_actions, device=env.device)
             obs, _, rew, done, info = env.step(actions)
+            elapsed_time += time.time() - start_time
+            if i % 10 == 0:
+                print("frame rate: ", 1.0 / elapsed_time)
+                elapsed_time = 0
     print("Done")
 
 
