@@ -34,6 +34,14 @@ class AirHockeyCfg(LeggedRobotCfg):
 
     class control(LeggedRobotCfg.control):
         decimation = 20
+        control_joint_idx = {
+            'planar_robot_1/joint_1': 0,
+            'planar_robot_1/joint_2': 1,
+            'planar_robot_1/joint_3': 2
+        }
+        control_type = 'P'
+        stiffness = {'planar_robot_1/joint_1': 960, 'planar_robot_1/joint_2': 480, 'planar_robot_1/joint_3': 240}
+        damping = {'planar_robot_1/joint_1': 60, 'planar_robot_1/joint_2': 20, 'planar_robot_1/joint_3': 4}
 
     class init_state(LeggedRobotCfg.init_state):
         default_joint_angles = {
@@ -46,11 +54,7 @@ class AirHockeyCfg(LeggedRobotCfg):
             'pack_y',
             'pack_yaw'
         }
-        control_joint_idx = {
-            'planar_robot_1/joint_1': 0,
-            'planar_robot_1/joint_2': 1,
-            'planar_robot_1/joint_3': 2
-        }
+
         puck_pos = {
             'puck_x': 0,
             'puck_y': 1,

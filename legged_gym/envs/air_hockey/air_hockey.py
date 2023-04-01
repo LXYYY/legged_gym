@@ -29,6 +29,8 @@ class AirHockeyBase(LeggedRobot):
 
         super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
 
+        self.num_ctrl = len(cfg.control.control_joint_idx) * 2
+
     def clone_mujoco_controller(self, controller: PositionControlPlanar):
         # clone the mujoco controller and delete the original to reduce memory usage
         self.base_interp_traj = controller.interpolate_trajectory
@@ -71,9 +73,10 @@ class AirHockeyBase(LeggedRobot):
         # clip_actions = self.cfg.normalization.clip_actions
         # self.actions = torch.clip(actions, -clip_actions, clip_actions).to(self.device)
 
-        dummy_action = np.ones((self.num_envs, 6))
+        # actions to tensor
+        actions = actions.detach().cpu().numpy()
 
-        traj = np.apply_along_axis(self.interpolate_trajectory, 1, dummy_action)
+        traj = np.apply_along_axis(self.interpolate_trajectory, 1, actions)
 
         self.render()
 
@@ -227,13 +230,9 @@ class AirHockeyBase(LeggedRobot):
         self.measured_heights = 0
 
         self.default_dof_pos = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
-        for i in range(self.num_dofs):
-            name = self.dof_names[i]
-            angle = 0.
-            # if name in self.cfg.init_state.control_joint_angles.keys():
-            #     self.control_joints_idx[self.cfg.init_state.control_joint_idx[name]] = i
-            if name in self.cfg.init_state.default_joint_angles.keys():
-                angle = self.cfg.init_state.default_joint_angles[name]
+        for name in self.cfg.control.control_joint_idx.keys():
+            i = self.dof_names.index(name)
+            angle = self.cfg.init_state.default_joint_angles[name]
             self.default_dof_pos[i] = angle
             found = False
             for dof_name in self.cfg.control.stiffness.keys():
@@ -296,11 +295,11 @@ class AirHockeyBase(LeggedRobot):
         body_names = self.gym.get_asset_rigid_body_names(robot_asset)
         self.dof_names = self.gym.get_asset_dof_names(robot_asset)
 
-        idx = self.cfg.init_state.control_joint_idx.keys()
+        idx = self.cfg.control.control_joint_idx.keys()
         self.ctrl_joints_idx = np.zeros(len(idx), dtype=np.int32);
         dof_dict = self.gym.get_asset_dof_dict(robot_asset)
         for name in idx:
-            self.ctrl_joints_idx[self.cfg.init_state.control_joint_idx[name]] = int(dof_dict[name])
+            self.ctrl_joints_idx[self.cfg.control.control_joint_idx[name]] = int(dof_dict[name])
         all_numbers = np.arange(self.num_actions)
         free_joints = np.setdiff1d(all_numbers, self.ctrl_joints_idx)
         self.ctrl_joints_idx_full = np.concatenate((self.ctrl_joints_idx, free_joints))
@@ -364,12 +363,12 @@ class AirHockeyBase(LeggedRobot):
                 self.envs.append(env_handle)
                 self.actor_handles.append(actor_handle)
 
-                ctrl_actor_idx = np.zeros(len(self.cfg.init_state.control_joint_idx.keys()), dtype=np.int32)
+                ctrl_actor_idx = np.zeros(len(self.cfg.control.control_joint_idx.keys()), dtype=np.int32)
                 # iterate all actuator joint names
                 for i in range(self.gym.get_asset_actuator_count(robot_asset)):
                     joint_name = self.gym.get_asset_actuator_joint_name(robot_asset, i)
-                if joint_name in self.cfg.init_state.control_joint_idx.keys():
-                    ctrl_actor_idx[self.cfg.init_state.control_joint_idx[joint_name]] = i
+                if joint_name in self.cfg.control.control_joint_idx.keys():
+                    ctrl_actor_idx[self.cfg.control.control_joint_idx[joint_name]] = i
                 self.ctrl_actor_idx = torch.from_numpy(ctrl_actor_idx).to(torch.int32).to(self.device)
 
     def _process_rigid_shape_props(self, rigid_shape_props_asset, env_id):
@@ -462,8 +461,12 @@ class AirHockeyBase(LeggedRobot):
 
     def reset(self):
         # TODO: reset prev_pos, prev_vel, prev_acc, self.prev_controller_cmd_pos
-
-        return super(AirHockeyBase, self).reset()
+        # we have 10 joints, but only control 3 of them, so num_actions for the controller is 3, but 10 for the env
+        # override reset to work around this
+        self.reset_idx(torch.arange(self.num_envs, device=self.device))
+        obs, privileged_obs, _, _, _ = self.step(
+            torch.zeros(self.num_envs, self.num_ctrl, device=self.device, requires_grad=False))
+        return obs, privileged_obs
 
     def check_termination(self):
         """ Check if environments need to be reset
