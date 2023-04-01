@@ -1,5 +1,6 @@
 import os
 
+import numpy as np
 import torch
 from air_hockey_challenge.environments.planar.base import AirHockeyBase
 from air_hockey_challenge.environments.position_control_wrapper import PositionControl
@@ -27,9 +28,6 @@ class AirHockeyBase(LeggedRobot):
         """
 
         super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
-
-        self.puck_pos = None
-        self.puck_vel = None
 
     def clone_mujoco_controller(self, controller: PositionControl):
         # clone the mujoco controller and delete the original to reduce memory usage
@@ -130,33 +128,53 @@ class AirHockeyBase(LeggedRobot):
         return torch.clip(torques, -self.ctrl_torque_limits, self.ctrl_torque_limits)
 
     def post_physics_step(self):
+        """ check terminations, compute observations and rewards
+            calls self._post_physics_step_callback() for common computations
+            calls self._draw_debug_vis() if needed
+        """
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_net_contact_force_tensor(self.sim)
 
         self.episode_length_buf += 1
         self.common_step_counter += 1
 
+        # prepare quantities
+        self.base_quat[:] = self.root_states[:, 3:7]
+        self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
+        self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
+        self.projected_gravity[:] = quat_rotate_inverse(self.base_quat, self.gravity_vec)
+
+        self._post_physics_step_callback()
+
+        # compute observations, rewards, resets, ...
+        self.check_termination()
+        self.compute_reward()
+        env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
+        self.reset_idx(env_ids)
+        self.compute_observations()  # in some cases a simulation step might be required to refresh some obs (for example body positions)
+
+        self.last_actions[:] = self.actions[:]
+        self.last_dof_vel[:] = self.dof_vel[:]
+        self.last_root_vel[:] = self.root_states[:, 7:13]
+
+        if self.viewer and self.enable_viewer_sync and self.debug_viz:
+            self._draw_debug_vis()
+
+    def _post_physics_step_callback(self):
+        pass
+
     def compute_observations(self):
+        # self.env_info['puck_pos_ids'] = [0, 1, 2]
+        # self.env_info['puck_vel_ids'] = [3, 4, 5]
+        # self.env_info['joint_pos_ids'] = [6, 7, 8]
+        # self.env_info['joint_vel_ids'] = [9, 10, 11]
 
-        # new_obs = obs.copy()
-        # puck_pos, puck_vel = self.get_puck(obs)
-        #
+        obs_puck_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.obs_puck_pos_idx, 0]
+        obs_puck_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.obs_puck_pos_idx, 1]
+        obs_joint_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 0]
+        obs_joint_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 1]
 
-        new_obs = []
-
-        puck_pos = None
-        puck_vel = None
-
-        puck_pos = self._puck_2d_in_robot_frame(puck_pos, self.env_info['robot']['base_frame'][0])
-        puck_vel = self._puck_2d_in_robot_frame(puck_vel, self.env_info['robot']['base_frame'][0], type='vel')
-
-        self.obs_helper.get_from_obs(new_obs, "puck_x_pos")[:] = puck_pos[0]
-        self.obs_helper.get_from_obs(new_obs, "puck_y_pos")[:] = puck_pos[1]
-        self.obs_helper.get_from_obs(new_obs, "puck_yaw_pos")[:] = puck_pos[2]
-
-        self.obs_helper.get_from_obs(new_obs, "puck_x_vel")[:] = puck_vel[0]
-        self.obs_helper.get_from_obs(new_obs, "puck_y_vel")[:] = puck_vel[1]
-        self.obs_helper.get_from_obs(new_obs, "puck_yaw_vel")[:] = puck_vel[2]
+        self.obs_buf = torch.cat((obs_puck_pos, obs_puck_vel, obs_joint_pos, obs_joint_vel), dim=1)
 
     def get_puck(self, obs):
         puck_pos = None
@@ -296,7 +314,14 @@ class AirHockeyBase(LeggedRobot):
         self.body_names = body_names
         self.num_dofs = len(self.dof_names)
 
-        # prop=gymapi.RigidBodyProperties()
+        # get the dof indices of the obs
+        self.obs_puck_pos_idx = np.zeros(len(self.cfg.init_state.puck_pos), dtype=np.int32)
+        for name in self.cfg.init_state.puck_pos.keys():
+            self.obs_puck_pos_idx[self.cfg.init_state.puck_pos[name]] = int(dof_dict[name])
+
+        self.obs_puck_vel_idx = np.zeros(len(self.cfg.init_state.puck_vel), dtype=np.int32)
+        for name in self.cfg.init_state.puck_vel.keys():
+            self.obs_puck_vel_idx[self.cfg.init_state.puck_vel[name]] = int(dof_dict[name])
 
         feet_names = [s for s in body_names if self.cfg.asset.foot_name in s]
         penalized_contact_names = []
@@ -436,3 +461,9 @@ class AirHockeyBase(LeggedRobot):
         """
         self.time_out_buf = self.episode_length_buf > self.max_episode_length  # no terminal reward for time-outs
         self.reset_buf |= self.time_out_buf
+
+    def compute_reward(self):
+        """ Compute rewards
+        """
+        # self.rewards
+        pass
