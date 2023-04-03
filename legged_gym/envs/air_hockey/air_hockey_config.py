@@ -8,7 +8,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 1
+        num_envs = 2
         num_observations = 12
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 10
@@ -42,6 +42,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         control_type = 'P'
         stiffness = {'planar_robot_1/joint_1': 960, 'planar_robot_1/joint_2': 480, 'planar_robot_1/joint_3': 240}
         damping = {'planar_robot_1/joint_1': 60, 'planar_robot_1/joint_2': 20, 'planar_robot_1/joint_3': 4}
+        robot_base_body = 'planar_robot_1/body_ee'
 
     class init_state(LeggedRobotCfg.init_state):
         default_joint_angles = {

@@ -69,8 +69,10 @@ def test_env(args):
         elapsed_time = 0
         for i in range(int(10 * env.max_episode_length)):
             start_time = time.time()
-            actions = agent.act(obs)
-            actions = torch.from_numpy(actions).float().to(obs.device).view(env.num_envs, -1)
+            actions = None
+            if not torch.isnan(obs).any():
+                actions = agent.act(obs)
+                actions = torch.from_numpy(actions).float().to(obs.device).view(env.num_envs, -1)
             obs, _, rew, done, info = env.step(actions)
             elapsed_time += time.time() - start_time
             if i % 10 == 0:
