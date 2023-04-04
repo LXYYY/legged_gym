@@ -58,7 +58,7 @@ class AirHockeyBase(LeggedRobot):
         self.env_info = base_env.env_info
 
     def check_tf_ready(self):
-        error = self.t_base_actor[0, :2].detach().cpu().numpy() - self.env_info['robot']['base_frame'][0][:2, 3]
+        error = self.t_base_actor[0, :2].detach().cpu().numpy() + self.env_info['robot']['base_frame'][0][:2, 3]
         # check any error dim is greater than 5e-2
         return np.all(np.abs(error) < 5e-2)
 
@@ -128,8 +128,6 @@ class AirHockeyBase(LeggedRobot):
 
         self.render()
 
-        print(self.body_pos[:, self.robot_base_body_id, :])
-
         for _ in range(self.cfg.control.decimation):
             # check if the tf is ready, i.e. close to base_env
             if self.tf_ready:
@@ -138,11 +136,10 @@ class AirHockeyBase(LeggedRobot):
                 # zero actions
                 # self.ctrl_actions = torch.zeros(self.num_envs, 3, self._num_env_joints).to(self.device)
                 self.ctrl_torques = self._compute_torques(self.ctrl_actions).view(self.ctrl_torques.shape)
-                # TODO: how to set the torques
                 self.torques[:, self.ctrl_joints_idx[0]] = self.ctrl_torques[:, 0]
                 self.torques[:, self.ctrl_joints_idx[1]] = self.ctrl_torques[:, 1]
                 self.torques[:, self.ctrl_joints_idx[2]] = self.ctrl_torques[:, 2]
-                # self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
+                self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
             else:
                 self._update_tf()
                 self.tf_ready = self.check_tf_ready()
