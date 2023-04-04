@@ -3,7 +3,6 @@ import os
 import numpy as np
 import torch
 import logging
-from pytorch3d.transforms import *
 from air_hockey_challenge.environments.planar.base import AirHockeyBase as MCJBase
 from air_hockey_challenge.environments.position_control_wrapper import PositionControlPlanar
 from isaacgym import gymtorch, gymapi
@@ -36,7 +35,7 @@ class AirHockeyBase(LeggedRobot):
 
         self.puck_roll = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
         self.puck_pitch = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
-        self.step_count = 0
+        self.tf_ready = False
 
     def clone_mujoco_controller(self, controller: PositionControlPlanar):
         # clone the mujoco controller and delete the original to reduce memory usage
@@ -55,51 +54,43 @@ class AirHockeyBase(LeggedRobot):
         self.get_reset_puck_pos = controller.get_reset_puck_pos
         self.hit_range = controller.hit_range
 
-    def puck_2d_in_robot_frame(self, puck_actor, T_base_actor, type):
+    def clone_env_info(self, base_env):
+        self.env_info = base_env.env_info
+
+    def check_tf_ready(self):
+        error = self.t_base_actor[0, :2].detach().cpu().numpy() - self.env_info['robot']['base_frame'][0][:2, 3]
+        # check any error dim is greater than 5e-2
+        return np.all(np.abs(error) < 5e-2)
+
+    def puck_2d_in_robot_frame(self, puck_actor, t_base_actor, q_base_actor, type):
         puck_base = torch.zeros_like(puck_actor)
-        if type == 'pose':
+        if type == 'pos':
             ea_actor_puck = torch.zeros(self.num_envs, 3, device=self.device, dtype=torch.float)
             ea_actor_puck[:, 2] = puck_actor[:, 2]
-            r_actor_puck = euler_angles_to_matrix(ea_actor_puck, convention='XYZ')
-            # q_actor_puck = matrix_to_quaternion(r_actor_puck)
-            # q_base_puck = quaternion_multiply(q_base_actor, q_actor_puck)
-            #
-            # r_base_puck = quaternion_to_matrix(q_base_puck)
-            #
-            # r_actor_base = quaternion_to_matrix(q_actor_base)
-            #
-            # T_actor_base = torch.eye(4, device=self.device, dtype=torch.float)
-            # T_actor_base[:3, :3] = r_actor_base
-            # T_actor_base[:3, 3] = t_actor_base
-            #
-            # T_base_actor = T_actor_base.inverse()
+            r_actor_puck = quat_from_euler_xyz(ea_actor_puck[:, 0], ea_actor_puck[:, 1], ea_actor_puck[:, 2])
+            t_actor_puck = torch.zeros(self.num_envs, 3, device=self.device, dtype=torch.float)
+            t_actor_puck[:, :2] = puck_actor[:, :2]
 
-            T_actor_puck = torch.eye(4, device=self.device, dtype=torch.float).unsqueeze(0).repeat(self.num_envs, 1, 1)
-            T_actor_puck[..., :3, :3] = r_actor_puck
-            T_actor_puck[..., :3, 3] = puck_actor[:, :3]
+            q_base_puck, t_base_puck = tf_combine(q_base_actor, t_base_actor, r_actor_puck, t_actor_puck)
+            _, _, yaw = get_euler_xyz(q_base_puck)
+            puck_base[:, :2] = t_base_puck[:, :2]
+            puck_base[:, 2] = yaw % (2 * np.pi)
 
-            T_base_puck = torch.matmul(T_base_actor, T_actor_puck)
-
-            puck_base[:, 0] = T_base_puck[:, 0, 3]
-            puck_base[:, 1] = T_base_puck[:, 1, 3]
-            # get yaw angle
-            ea_base_puck = matrix_to_euler_angles(T_base_puck[..., :3, :3], convention='XYZ')
-            puck_base[:, 2] = ea_base_puck[..., 2]
-        else:
-            vel_lin = torch.cat(
+        elif type == 'vel':
+            vel_lin_actor_puck = torch.cat(
                 (puck_actor[:, :2], torch.zeros(self.num_envs, 1, device=self.device, dtype=torch.float)),
                 dim=1)
-            vel_ang = torch.cat(
+            vel_ang_actor_puck = torch.cat(
                 [torch.zeros(self.num_envs, 2, device=self.device, dtype=torch.float), puck_actor[:, 2:3]],
                 dim=1)
 
-            rot_base_actor = T_base_actor[:, :3, :3]
-
-            vel_lin_base = torch.matmul(rot_base_actor, vel_lin.unsqueeze(-1)).squeeze(-1)
-            vel_ang_base = torch.matmul(rot_base_actor, vel_ang.unsqueeze(-1)).squeeze(-1)
+            vel_lin_base = quat_apply(q_base_actor, vel_lin_actor_puck)
+            vel_ang_base = quat_apply(q_base_actor, vel_ang_actor_puck)
 
             puck_base[:, :2] = vel_lin_base[:, :2]
             puck_base[:, 2] = vel_ang_base[:, 2]
+        else:
+            raise NotImplementedError
 
         return puck_base
 
@@ -137,14 +128,11 @@ class AirHockeyBase(LeggedRobot):
 
         self.render()
 
-        # TODO: translate the action
-        print('step: ', self.step_count)
-        self.step_count += 1
+        print(self.body_pos[:, self.robot_base_body_id, :])
 
         for _ in range(self.cfg.control.decimation):
-            # check if any of self.T_base_actor is nan
-            # only start control when the T_base_actor is valid
-            if not torch.isnan(self.T_base_actor).any():
+            # check if the tf is ready, i.e. close to base_env
+            if self.tf_ready:
                 actions_step = np.array([next(t) for t in traj])  # num_envs x [q qd qdd] x num_joints
                 self.ctrl_actions = torch.from_numpy(actions_step).to(torch.float32).to(self.device)
                 # zero actions
@@ -156,21 +144,16 @@ class AirHockeyBase(LeggedRobot):
                 self.torques[:, self.ctrl_joints_idx[2]] = self.ctrl_torques[:, 2]
                 # self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
             else:
-                env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
-                self.reset_idx(env_ids)
-                self._init_buffers()
+                self._update_tf()
+                self.tf_ready = self.check_tf_ready()
 
-                self.gym.simulate(self.sim)
-                if self.device == 'cpu':
-                    self.gym.fetch_results(self.sim, True)
-                self.gym.refresh_dof_state_tensor(self.sim)
-                self.post_physics_step()
+            self.gym.simulate(self.sim)
+            if self.device == 'cpu':
+                self.gym.fetch_results(self.sim, True)
+            self.gym.refresh_dof_state_tensor(self.sim)
+            self.gym.refresh_rigid_body_state_tensor(self.sim)
 
-                # return clipped obs, clipped states (None), rewards, dones and infos
-                # clip_obs = self.cfg.normalization.clip_observations
-                # self.obs_buf = torch.clip(self.obs_buf, -clip_obs, clip_obs)
-        # if self.privileged_obs_buf is not None:
-        #     self.privileged_obs_buf = torch.clip(self.privileged_obs_buf, -clip_obs, clip_obs)
+        self.post_physics_step()
 
         return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras
 
@@ -209,12 +192,6 @@ class AirHockeyBase(LeggedRobot):
         self.episode_length_buf += 1
         self.common_step_counter += 1
 
-        # prepare quantities
-        self.base_quat[:] = self.root_states[:, 3:7]
-        self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
-        self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
-        self.projected_gravity[:] = quat_rotate_inverse(self.base_quat, self.gravity_vec)
-
         self._post_physics_step_callback()
 
         # compute observations, rewards, resets, ...
@@ -235,18 +212,13 @@ class AirHockeyBase(LeggedRobot):
         pass
 
     def compute_observations(self):
-        # self.env_info['puck_pos_ids'] = [0, 1, 2]
-        # self.env_info['puck_vel_ids'] = [3, 4, 5]
-        # self.env_info['joint_pos_ids'] = [6, 7, 8]
-        # self.env_info['joint_vel_ids'] = [9, 10, 11]
-
         puck_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.puck_pos_idx, 0]
         puck_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.puck_pos_idx, 1]
         joint_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 0]
         joint_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 1]
 
-        puck_pos = self.puck_2d_in_robot_frame(puck_pos, self.T_base_actor, type='pose')
-        puck_vel = self.puck_2d_in_robot_frame(puck_vel, self.T_base_actor, type='vel')
+        puck_pos = self.puck_2d_in_robot_frame(puck_pos, self.t_base_actor, self.q_base_actor, type='pos')
+        puck_vel = self.puck_2d_in_robot_frame(puck_vel, self.t_base_actor, self.q_base_actor, type='vel')
 
         self.obs_buf = torch.cat((puck_pos, puck_vel, joint_pos, joint_vel), dim=1)
 
@@ -266,8 +238,6 @@ class AirHockeyBase(LeggedRobot):
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
         self.dof_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 0]
         self.dof_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 1]
-        self.base_pos = self.root_states[:, :3]
-        self.base_quat = self.root_states[:, 3:7]
 
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1,
                                                                             3)  # shape: num_envs, num_bodies, xyz axis
@@ -293,9 +263,6 @@ class AirHockeyBase(LeggedRobot):
                                     device=self.device, requires_grad=False)  # x vel, y vel, yaw vel, heading
         self.commands_scale = torch.tensor([self.obs_scales.lin_vel, self.obs_scales.lin_vel, self.obs_scales.ang_vel],
                                            device=self.device, requires_grad=False, )  # TODO change this
-        self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
-        self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
-        self.projected_gravity = quat_rotate_inverse(self.base_quat, self.gravity_vec)
         if self.cfg.terrain.measure_heights:
             self.height_points = self._init_height_points()
         self.measured_heights = 0
@@ -328,32 +295,26 @@ class AirHockeyBase(LeggedRobot):
         self.ctrl_d_gains = self.p_gains[self.ctrl_joints_idx]
         self.ctrl_torque_limits = self.torque_limits[self.ctrl_joints_idx]
 
-        # body_state = self.gym.acquire_rigid_body_state_tensor(self.sim)
-        # self.body_state = gymtorch.wrap_tensor(body_state)
-        # self.body_pos = self.body_state.view(self.num_envs, self.num_bodies, -1)[..., :3]
-        # self.body_quat = self.body_state.view(self.num_envs, self.num_bodies, -1)[..., 3:7]
-        #
-        # self.body_vel = self.body_state.view(self.num_envs, self.num_bodies, -1)[..., 7:10]
-        # self.body_ang_vel = self.body_state.view(self.num_envs, self.num_bodies, -1)[..., 10:13]
-        # self.robot_base_body_id = self.body_names.index(self.cfg.control.robot_base_body)
-        #
-        # # create a self.num_envs * 4 *4 eye matrix
-        # self.T_world_base = torch.eye(4, dtype=torch.float, device=self.device, requires_grad=False).unsqueeze(
-        #     0).repeat(self.num_envs, 1, 1)
-        #
-        # self.T_world_actor = torch.eye(4, dtype=torch.float, device=self.device, requires_grad=False).unsqueeze(
-        #     0).repeat(self.num_envs, 1, 1)
-        # self.T_world_actor[..., :3, 3] = self.base_pos
-        # self.T_world_actor[..., :3, :3] = quaternion_to_matrix(self.base_quat)
-        #
-        # self.T_world_base[..., :2, 3] = self.body_pos[:, self.robot_base_body_id, :2]
-        # print(self.body_pos[0, self.robot_base_body_id, :2])
-        # print(self.body_pos[0, self.robot_base_body_id, :])
-        # self.T_world_base[..., 2, 3] = 0
-        # r_actor_base = quaternion_to_matrix(self.body_quat[:, self.robot_base_body_id, :])
-        # self.T_world_base[..., :3, :3] = r_actor_base
-        #
-        # self.T_base_actor = torch.matmul(torch.inverse(self.T_world_base), self.T_world_actor)
+        body_state = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        self.body_state = gymtorch.wrap_tensor(body_state)
+        self.body_pos = self.body_state.view(self.num_envs, self.num_bodies, -1)[..., :3]
+        self.body_quat = self.body_state.view(self.num_envs, self.num_bodies, -1)[..., 3:7]
+
+        self.body_vel = self.body_state.view(self.num_envs, self.num_bodies, -1)[..., 7:10]
+        self.body_ang_vel = self.body_state.view(self.num_envs, self.num_bodies, -1)[..., 10:13]
+        self.robot_base_body_id = self.body_names.index(self.cfg.control.robot_base_body)
+        self.actor_body_id = self.body_names.index(self.cfg.control.actor_body)
+
+    def _update_tf(self):
+        self.t_world_actor = self.body_pos[:, self.actor_body_id]
+        self.t_world_actor[:, 2] = 0.  # set z to zero
+        self.q_world_actor = self.body_quat[:, self.actor_body_id]
+        self.t_world_base = self.body_pos[:, self.robot_base_body_id]
+        self.t_world_base[:, 2] = 0.  # set z to zero
+        self.q_world_base = self.body_quat[:, self.robot_base_body_id]
+        q_base_world, t_base_world = tf_inverse(self.q_world_base, self.t_world_base)
+        self.q_base_actor, self.t_base_actor = tf_combine(q_base_world, t_base_world, self.q_world_actor,
+                                                          self.t_world_actor)
 
     def _create_envs(self):
         """ Creates environments:

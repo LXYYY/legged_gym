@@ -56,6 +56,7 @@ def test_env(args):
     env_wp = AirHockeyChallengeWrapper(env="3dof-hit", action_type="position_velocity", interpolation_order=3,
                                        debug=False)
     env.clone_mujoco_controller(env_wp.base_env)
+    env.clone_env_info(env_wp.base_env)
 
     agent = AgentWrapper(env_wp.base_env.env_info, env.num_envs)
 

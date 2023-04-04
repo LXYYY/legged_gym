@@ -42,7 +42,9 @@ class AirHockeyCfg(LeggedRobotCfg):
         control_type = 'P'
         stiffness = {'planar_robot_1/joint_1': 960, 'planar_robot_1/joint_2': 480, 'planar_robot_1/joint_3': 240}
         damping = {'planar_robot_1/joint_1': 60, 'planar_robot_1/joint_2': 20, 'planar_robot_1/joint_3': 4}
-        robot_base_body = 'planar_robot_1/body_ee'
+        # Frames chain: world -> env(?) -> air_hockey -> robot_base -> robot_ee/puck
+        robot_base_body = 'planar_robot_1/base'
+        actor_body = 'air_hockey'
 
     class init_state(LeggedRobotCfg.init_state):
         default_joint_angles = {
