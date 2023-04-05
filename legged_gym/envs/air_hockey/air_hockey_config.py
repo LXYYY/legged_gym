@@ -28,6 +28,9 @@ class AirHockeyCfg(LeggedRobotCfg):
             # gold
             'planar_robot_1/body_ee': [0.8, 0.8, 0.2],
         }
+        self_collisions = 1  # 1 to disable, 0 to enable...bitwise filter
+        disable_gravity = False
+        solref = [0.02, 0.3]
 
     class sim(LeggedRobotCfg.sim):
         dt = 0.001
@@ -38,6 +41,14 @@ class AirHockeyCfg(LeggedRobotCfg):
             'planar_robot_1/joint_1': 0,
             'planar_robot_1/joint_2': 1,
             'planar_robot_1/joint_3': 2
+        }
+        no_sim_body = {
+            'planar_robot_1/base',
+            'planar_robot_1/body_1',
+            'planar_robot_1/body_2',
+            'planar_robot_1/body_3',
+            'planar_robot_1/body_ee',
+            'planar_robot_1/body_hand'
         }
         control_type = 'P'
         stiffness = {'planar_robot_1/joint_1': 960, 'planar_robot_1/joint_2': 480, 'planar_robot_1/joint_3': 240}

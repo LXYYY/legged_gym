@@ -77,7 +77,7 @@ def test_env(args):
             obs, _, rew, done, info = env.step(actions)
             elapsed_time += time.time() - start_time
             if i % 10 == 0:
-                print("frame rate: ", 1.0 / elapsed_time)
+                # print("frame rate: ", 1.0 / elapsed_time)
                 elapsed_time = 0
     print("Done")
 
