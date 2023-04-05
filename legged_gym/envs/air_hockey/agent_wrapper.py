@@ -38,6 +38,7 @@ class AgentWrapper:
 
     def act(self, obs):
         obs = obs.view(self.num_envs, -1).detach().cpu().numpy()
+        print('obs', obs)
         actions = [agent.draw_action(obs[i]) for i, agent in enumerate(self.agents)]
         actions = np.array(actions)
         return actions

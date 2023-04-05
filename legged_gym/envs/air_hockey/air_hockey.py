@@ -122,14 +122,6 @@ class AirHockeyBase(LeggedRobot):
 
     # action shape: (num_envs, 2: [q, dq], num_joints=3)
     def step(self, actions):
-        # make a dummy step for debug
-
-        # TODO: adjust the action dimension and its cfg
-        # clip_actions = self.cfg.normalization.clip_actions
-        # self.actions = torch.clip(actions, -clip_actions, clip_actions).to(self.device)
-
-        # actions to tensor
-
         if not self.tf_ready:
             self.reset()
             self._init_buffers()
@@ -137,7 +129,6 @@ class AirHockeyBase(LeggedRobot):
             self.tf_ready = self.check_tf_ready()
 
         if self.tf_ready:
-            traj = None
             if actions is not None:
                 actions = actions.detach().cpu().numpy()
                 actions_env_id = np.array([[actions[i], i] for i in range(actions.shape[0])])
@@ -166,15 +157,18 @@ class AirHockeyBase(LeggedRobot):
                 self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
                 # self.reset()
 
-            self.gym.simulate(self.sim)
-            if self.device == 'cpu':
-                self.gym.fetch_results(self.sim, True)
-            self.gym.refresh_dof_state_tensor(self.sim)
-            self.gym.refresh_rigid_body_state_tensor(self.sim)
+            self.simulate_step()
 
         self.post_physics_step()
 
         return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras
+
+    def simulate_step(self):
+        self.gym.simulate(self.sim)
+        if self.device == 'cpu':
+            self.gym.fetch_results(self.sim, True)
+        self.gym.refresh_dof_state_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
 
     def _compute_torques(self, clipped_actions: torch.Tensor):
         """ Compute torques from actions.
@@ -236,6 +230,9 @@ class AirHockeyBase(LeggedRobot):
 
         puck_pos = self.puck_2d_in_robot_frame(puck_pos, self.t_base_actor, self.q_base_actor, type='pos')
         puck_vel = self.puck_2d_in_robot_frame(puck_vel, self.t_base_actor, self.q_base_actor, type='vel')
+
+        print("puck_pos: ", puck_pos)
+        print("puck_vel: ", puck_vel)
 
         self.obs_buf = torch.cat((puck_pos, puck_vel, joint_pos, joint_vel), dim=1)
 
@@ -560,7 +557,14 @@ class AirHockeyBase(LeggedRobot):
         # TODO: reset prev_pos, prev_vel, prev_acc, self.prev_controller_cmd_pos
         # we have 10 joints, but only control 3 of them, so num_actions for the controller is 3, but 10 for the env
         # override reset to work around this
-        self.reset_idx(torch.arange(self.num_envs, device=self.device))
+        while (not self.tf_ready):
+            self.reset_idx(torch.arange(self.num_envs, device=self.device))
+            self.simulate_step()
+            self._init_buffers()
+            self._update_tf()
+            self.tf_ready = self.check_tf_ready()
+        self.compute_observations()
+
         # obs, privileged_obs, _, _, _ = self.step(
         #     torch.zeros(self.num_envs, self.num_ctrl, device=self.device, requires_grad=False))
         return self.obs_buf, None

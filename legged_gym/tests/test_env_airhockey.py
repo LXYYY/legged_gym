@@ -65,6 +65,7 @@ def test_env(args):
     if render_only:
         while True:
             env.render()
+            env.simulate_step()
     else:
         import time
         elapsed_time = 0

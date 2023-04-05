@@ -8,7 +8,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 2
+        num_envs = 1
         num_observations = 12
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 10
@@ -28,7 +28,7 @@ class AirHockeyCfg(LeggedRobotCfg):
             # gold
             'planar_robot_1/body_ee': [0.8, 0.8, 0.2],
         }
-        self_collisions = 1  # 1 to disable, 0 to enable...bitwise filter
+        self_collisions = 0  # 1 to disable, 0 to enable...bitwise filter
         disable_gravity = False
         solref = [0.02, 0.3]
 
