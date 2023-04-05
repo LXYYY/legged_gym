@@ -8,10 +8,10 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 1
+        num_envs = 30
         num_observations = 12
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
-        num_actions = 10
+        num_actions = 11
         env_spacing = 3.  # not used with heightfields/trimeshes
         send_timeouts = True  # send time out information to the algorithm
         episode_length_s = 20  # episode length in seconds
@@ -79,7 +79,12 @@ class AirHockeyCfg(LeggedRobotCfg):
             'puck_y': 1,
             'puck_yaw': 2
         }
-        pos = [0, 0, 0.02]
+        pos = [0, 0, 0]
+
+    class viewer(LeggedRobotCfg.viewer):
+    #     ref_env = 0
+        pos = [3, 0, 12]  # [m]
+        lookat = [0, 0, 1]  # [m]
 
 
 class AirHockeyCfgPPO(LeggedRobotCfgPPO):

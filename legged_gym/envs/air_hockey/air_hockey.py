@@ -231,9 +231,6 @@ class AirHockeyBase(LeggedRobot):
         puck_pos = self.puck_2d_in_robot_frame(puck_pos, self.t_base_actor, self.q_base_actor, type='pos')
         puck_vel = self.puck_2d_in_robot_frame(puck_vel, self.t_base_actor, self.q_base_actor, type='vel')
 
-        print("puck_pos: ", puck_pos)
-        print("puck_vel: ", puck_vel)
-
         self.obs_buf = torch.cat((puck_pos, puck_vel, joint_pos, joint_vel), dim=1)
 
     def _init_buffers(self):
