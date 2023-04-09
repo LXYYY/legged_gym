@@ -37,25 +37,10 @@ from legged_gym.envs import *
 from legged_gym.utils import get_args, export_policy_as_jit, task_registry, Logger
 
 import torch
-import importlib
+
+from legged_gym.envs.air_hockey.agent_wrapper import AgentWrapper
 
 render_only = False
-
-
-def get_parent_directory(module_name):
-    # Load the module
-    module = importlib.import_module(module_name)
-
-    # Get the module's file path
-    module_path = os.path.abspath(module.__file__)
-
-    # Find the directory containing the module
-    module_dir = os.path.dirname(module_path)
-
-    # Find the parent directory
-    parent_dir = os.path.abspath(os.path.join(module_dir, '..'))
-
-    return parent_dir
 
 
 def test_env(args):
@@ -71,31 +56,29 @@ def test_env(args):
     env_wp = AirHockeyChallengeWrapper(env="3dof-hit", action_type="position_velocity", interpolation_order=3,
                                        debug=False)
     env.clone_mujoco_controller(env_wp.base_env)
+    env.clone_env_info(env_wp.base_env)
 
-    pdir = get_parent_directory("air_hockey_challenge")
-    import sys
-    sys.path.append(pdir)
-    from examples.control.hitting_agent import HittingAgent
-
-    agent = HittingAgent(env_wp.base_env.env_info)
+    agent = AgentWrapper(env_wp.base_env.env_info, env.num_envs)
 
     obs, _ = env.reset()
-    agent.reset()
 
     if render_only:
         while True:
             env.render()
+            env.simulate_step()
     else:
         import time
         elapsed_time = 0
         for i in range(int(10 * env.max_episode_length)):
             start_time = time.time()
-            actions = agent.draw_action(obs.detach().cpu().numpy().flatten())
-            actions = torch.from_numpy(actions).float().to(obs.device)
+            actions = None
+            if not torch.isnan(obs).any():
+                actions = agent.act(obs)
+                actions = torch.from_numpy(actions).float().to(obs.device).view(env.num_envs, -1)
             obs, _, rew, done, info = env.step(actions)
             elapsed_time += time.time() - start_time
             if i % 10 == 0:
-                print("frame rate: ", 1.0 / elapsed_time)
+                # print("frame rate: ", 1.0 / elapsed_time)
                 elapsed_time = 0
     print("Done")
 

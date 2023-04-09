@@ -11,11 +11,6 @@ class AirHockeyPlanarCfg(AirHockeyCfg):
         class scales:
             pass
 
-    class control(AirHockeyCfg.control):
-        control_type = 'P'
-        stiffness = {'planar_robot_1/joint_1': 960, 'planar_robot_1/joint_2': 480, 'planar_robot_1/joint_3': 240}
-        damping = {'planar_robot_1/joint_1': 60, 'planar_robot_1/joint_2': 20, 'planar_robot_1/joint_3': 4}
-
 
 class AirHockeyPlanarCfgPPO(AirHockeyCfgPPO):
     pass

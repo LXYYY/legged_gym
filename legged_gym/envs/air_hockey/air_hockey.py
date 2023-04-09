@@ -2,7 +2,8 @@ import os
 
 import numpy as np
 import torch
-from air_hockey_challenge.environments.planar.base import AirHockeyBase
+import logging
+from air_hockey_challenge.environments.planar.base import AirHockeyBase as MCJBase
 from air_hockey_challenge.environments.position_control_wrapper import PositionControlPlanar
 from isaacgym import gymtorch, gymapi
 from isaacgym.torch_utils import *
@@ -10,6 +11,7 @@ from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.legged_robot import LeggedRobot
 
 from .air_hockey_config import AirHockeyCfg
+from .transform import T_mat_from_body_state
 
 
 class AirHockeyBase(LeggedRobot):
@@ -29,82 +31,146 @@ class AirHockeyBase(LeggedRobot):
 
         super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
 
+        self.num_ctrl = len(cfg.control.control_joint_idx) * 2
+
+        self.puck_roll = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
+        self.puck_pitch = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
+        self.tf_ready = False
+
     def clone_mujoco_controller(self, controller: PositionControlPlanar):
         # clone the mujoco controller and delete the original to reduce memory usage
         self.base_interp_traj = controller.interpolate_trajectory
         self.base_enforce_safety_limits = controller.enforce_safety_limits
-        self.ctrl_dt = self.dt * self.cfg.control.decimation
         self.interp_order = controller.interp_order
-        self.prev_pos = controller.prev_pos
-        self.prev_vel = controller.prev_vel
-        self.prev_acc = controller.prev_acc
         self._num_env_joints = controller._num_env_joints
         self._num_coeffs = controller._num_coeffs
-        self._timestep = self.dt
+        self._timestep = self.sim_params.dt
         self._n_intermediate_steps = self.cfg.control.decimation
-        self.jerk = controller.jerk
         self.get_reset_puck_pos = controller.get_reset_puck_pos
         self.hit_range = controller.hit_range
 
-    def interpolate_trajectory(self, action):
-        action = action.reshape((2, self._num_env_joints))
-        traj, self.prev_pos, self.prev_vel, self.prev_acc, self.jerk = self.base_interp_traj(self.ctrl_dt,
-                                                                                             self.interp_order,
-                                                                                             self.prev_pos,
-                                                                                             self.prev_vel,
-                                                                                             self.prev_acc,
-                                                                                             self._num_env_joints,
-                                                                                             self._num_coeffs,
-                                                                                             self._timestep,
-                                                                                             self._n_intermediate_steps,
-                                                                                             action)
+    def clone_env_info(self, base_env):
+        self.env_info = base_env.env_info
+        self.n_agents = base_env.n_agents
+
+    def check_tf_ready(self):
+        error = self.t_base_actor[0, :2].detach().cpu().numpy() + self.env_info['robot']['base_frame'][0][:2, 3]
+        # check any error dim is greater than 5e-2
+        return np.all(np.abs(error) < 1e-3)
+
+    def puck_2d_in_robot_frame(self, puck_actor, t_base_actor, q_base_actor, type):
+        puck_base = torch.zeros_like(puck_actor)
+        if type == 'pos':
+            ea_actor_puck = torch.zeros(self.num_envs, 3, device=self.device, dtype=torch.float)
+            ea_actor_puck[:, 2] = puck_actor[:, 2]
+            r_actor_puck = quat_from_euler_xyz(ea_actor_puck[:, 0], ea_actor_puck[:, 1], ea_actor_puck[:, 2])
+            t_actor_puck = torch.zeros(self.num_envs, 3, device=self.device, dtype=torch.float)
+            t_actor_puck[:, :2] = puck_actor[:, :2]
+
+            q_base_puck, t_base_puck = tf_combine(q_base_actor, t_base_actor, r_actor_puck, t_actor_puck)
+            _, _, yaw = get_euler_xyz(q_base_puck)
+            puck_base[:, :2] = t_base_puck[:, :2]
+            # convert yaw to [-pi, pi]
+            puck_base[:, 2] = (yaw + np.pi) % (2 * np.pi) - np.pi
+
+        elif type == 'vel':
+            vel_lin_actor_puck = torch.cat(
+                (puck_actor[:, :2], torch.zeros(self.num_envs, 1, device=self.device, dtype=torch.float)),
+                dim=1)
+            vel_ang_actor_puck = torch.cat(
+                [torch.zeros(self.num_envs, 2, device=self.device, dtype=torch.float), puck_actor[:, 2:3]],
+                dim=1)
+
+            vel_lin_base = quat_apply(q_base_actor, vel_lin_actor_puck)
+            vel_ang_base = quat_apply(q_base_actor, vel_ang_actor_puck)
+
+            puck_base[:, :2] = vel_lin_base[:, :2]
+            puck_base[:, 2] = vel_ang_base[:, 2]
+        else:
+            raise NotImplementedError
+
+        return puck_base
+
+    def interpolate_trajectory(self, action_env_id):
+        action = action_env_id[0]
+        env_id = action_env_id[1]
+        action = action.reshape(2, self._num_env_joints)
+        traj, self.prev_pos[env_id, :], self.prev_vel[env_id, :], self.prev_acc[env_id, :], self.jerk[env_id, :] = \
+            self.base_interp_traj(
+                self.dt,
+                self.interp_order,
+                self.prev_pos[env_id, :],
+                self.prev_vel[env_id, :],
+                self.prev_acc[env_id, :],
+                self._num_env_joints,
+                self._num_coeffs,
+                self._timestep,
+                self._n_intermediate_steps,
+                action)
         return traj
 
-    def enforce_safety_limits(self, desired_pos, desired_vel):
-        return np.ones((self.num_envs, self._num_env_joints)), np.ones((self.num_envs, self._num_env_joints))
+    def enforce_safety_limits(self, actions_env_id):  # actions: (num_envs, 2: [q, dq], num_joints=3)
+        actions = actions_env_id[0]
+        env_id = actions_env_id[1]
+        desired_pos = actions[0:3]
+        desired_vel = actions[3:6]
+        clipped_pos, clipped_vel, self.prev_controller_cmd_pos[env_id] = self.base_enforce_safety_limits(
+            self.prev_controller_cmd_pos[env_id], self.env_info['robot']['joint_pos_limit'],
+            self.env_info['robot']['joint_vel_limit'],
+            self.n_agents, self._timestep, desired_pos, desired_vel)
+        return clipped_pos, clipped_vel
 
     # action shape: (num_envs, 2: [q, dq], num_joints=3)
     def step(self, actions):
-        # make a dummy step for debug
+        if not self.tf_ready:
+            self.reset()
+            self._init_buffers()
+            self._update_tf()
+            self.tf_ready = self.check_tf_ready()
 
-        # TODO: adjust the action dimension and its cfg
-        # clip_actions = self.cfg.normalization.clip_actions
-        # self.actions = torch.clip(actions, -clip_actions, clip_actions).to(self.device)
+        if self.tf_ready:
+            if actions is not None:
+                actions = actions.detach().cpu().numpy()
+                actions_env_id = np.array([[actions[i], i] for i in range(actions.shape[0])])
+                # actions = np.array([[0, 0, 0.1, 0.01, 0.01, 0.01] for t in actions])
+                # # repeat the action for 2 envs
+                # actions = np.repeat(actions, 2, axis=0)
 
-        dummy_action = np.ones((self.num_envs, 6))
-
-        traj = np.apply_along_axis(self.interpolate_trajectory, 1, dummy_action)
+                traj = np.apply_along_axis(self.interpolate_trajectory, 1, actions_env_id)
 
         self.render()
 
-        # TODO: translate the action
-
         for _ in range(self.cfg.control.decimation):
-            actions_step = np.array([next(t) for t in traj])  # num_envs x [q qd qdd] x num_joints
-            self.ctrl_actions = torch.from_numpy(actions_step).to(torch.float32).to(self.device)
-            # zero actions
-            # self.ctrl_actions = torch.zeros(self.num_envs, 3, self._num_env_joints).to(self.device)
-            self.ctrl_torques = self._compute_torques(self.ctrl_actions).view(self.ctrl_torques.shape)
-            # TODO: how to set the torques
-            self.torques[:, self.ctrl_joints_idx[0]] = self.ctrl_torques[:, 0]
-            self.torques[:, self.ctrl_joints_idx[1]] = self.ctrl_torques[:, 1]
-            self.torques[:, self.ctrl_joints_idx[2]] = self.ctrl_torques[:, 2]
-            self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
-            self.gym.simulate(self.sim)
-            if self.device == 'cpu':
-                self.gym.fetch_results(self.sim, True)
-            self.gym.refresh_dof_state_tensor(self.sim)
-        self.post_physics_step()
+            self.update_ctrl_dof_state()
+            # check if the tf is ready, i.e. close to base_env
+            if self.tf_ready:
+                actions_step = np.array([next(t) for t in traj]).reshape(self.num_envs,
+                                                                         -1)  # num_envs x [q qd qdd] x num_joints
+                actions_step_env_id = np.array([[actions_step[i], i] for i in range(actions_step.shape[0])])
+                clipped_action = np.apply_along_axis(self.enforce_safety_limits, 1, actions_step_env_id)
 
-        # return clipped obs, clipped states (None), rewards, dones and infos
-        # clip_obs = self.cfg.normalization.clip_observations
-        # self.obs_buf = torch.clip(self.obs_buf, -clip_obs, clip_obs)
-        # if self.privileged_obs_buf is not None:
-        #     self.privileged_obs_buf = torch.clip(self.privileged_obs_buf, -clip_obs, clip_obs)
+                self.ctrl_actions = torch.from_numpy(clipped_action).to(torch.float32).to(self.device)
+                self.ctrl_torques = self._compute_torques(self.ctrl_actions).view(self.ctrl_torques.shape)
+                self.torques[:, self.ctrl_joints_idx[0]] = self.ctrl_torques[:, 0]
+                self.torques[:, self.ctrl_joints_idx[1]] = self.ctrl_torques[:, 1]
+                self.torques[:, self.ctrl_joints_idx[2]] = self.ctrl_torques[:, 2]
+                self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
+                # self.reset()
+
+            self.simulate_step()
+
+        self.post_physics_step()
 
         return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras
 
-    def _compute_torques(self, actions: torch.Tensor):
+    def simulate_step(self):
+        self.gym.simulate(self.sim)
+        if self.device == 'cpu':
+            self.gym.fetch_results(self.sim, True)
+        self.gym.refresh_dof_state_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
+
+    def _compute_torques(self, clipped_actions: torch.Tensor):
         """ Compute torques from actions.
             Actions can be interpreted as position or velocity targets given to a PD controller, or directly as scaled torques.
             [NOTE]: torques must have the same dimension as the number of DOFs, even if some DOFs are not actuated.
@@ -116,10 +182,8 @@ class AirHockeyBase(LeggedRobot):
             [torch.Tensor]: Torques sent to the simulation
         """
         # pd controller
-        # TODO: enforce safety limits
-        clipped_pos = actions.view(self.num_envs, 3, self._num_env_joints)[..., 0, ...]
-        clipped_vel = actions.view(self.num_envs, 3, self._num_env_joints)[..., 1, ...]
-        clipped_acc = actions.view(self.num_envs, 3, self._num_env_joints)[..., 2, ...]
+        clipped_pos = clipped_actions.view(self.num_envs, 2, self._num_env_joints)[:, 0, :]
+        clipped_vel = clipped_actions.view(self.num_envs, 2, self._num_env_joints)[:, 1, :]
 
         error = clipped_pos - self.ctrl_dof_pos
 
@@ -138,12 +202,6 @@ class AirHockeyBase(LeggedRobot):
 
         self.episode_length_buf += 1
         self.common_step_counter += 1
-
-        # prepare quantities
-        self.base_quat[:] = self.root_states[:, 3:7]
-        self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
-        self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
-        self.projected_gravity[:] = quat_rotate_inverse(self.base_quat, self.gravity_vec)
 
         self._post_physics_step_callback()
 
@@ -165,17 +223,15 @@ class AirHockeyBase(LeggedRobot):
         pass
 
     def compute_observations(self):
-        # self.env_info['puck_pos_ids'] = [0, 1, 2]
-        # self.env_info['puck_vel_ids'] = [3, 4, 5]
-        # self.env_info['joint_pos_ids'] = [6, 7, 8]
-        # self.env_info['joint_vel_ids'] = [9, 10, 11]
+        puck_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.puck_pos_idx, 0]
+        puck_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.puck_pos_idx, 1]
+        joint_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 0]
+        joint_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 1]
 
-        obs_puck_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.puck_pos_idx, 0]
-        obs_puck_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.puck_pos_idx, 1]
-        obs_joint_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 0]
-        obs_joint_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 1]
+        puck_pos = self.puck_2d_in_robot_frame(puck_pos, self.t_base_actor, self.q_base_actor, type='pos')
+        puck_vel = self.puck_2d_in_robot_frame(puck_vel, self.t_base_actor, self.q_base_actor, type='vel')
 
-        self.obs_buf = torch.cat((obs_puck_pos, obs_puck_vel, obs_joint_pos, obs_joint_vel), dim=1)
+        self.obs_buf = torch.cat((puck_pos, puck_vel, joint_pos, joint_vel), dim=1)
 
     def _init_buffers(self):
         """ Initialize torch tensors which will contain simulation states and processed quantities
@@ -193,7 +249,6 @@ class AirHockeyBase(LeggedRobot):
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
         self.dof_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 0]
         self.dof_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 1]
-        self.base_quat = self.root_states[:, 3:7]
 
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1,
                                                                             3)  # shape: num_envs, num_bodies, xyz axis
@@ -219,21 +274,14 @@ class AirHockeyBase(LeggedRobot):
                                     device=self.device, requires_grad=False)  # x vel, y vel, yaw vel, heading
         self.commands_scale = torch.tensor([self.obs_scales.lin_vel, self.obs_scales.lin_vel, self.obs_scales.ang_vel],
                                            device=self.device, requires_grad=False, )  # TODO change this
-        self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
-        self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
-        self.projected_gravity = quat_rotate_inverse(self.base_quat, self.gravity_vec)
         if self.cfg.terrain.measure_heights:
             self.height_points = self._init_height_points()
         self.measured_heights = 0
 
         self.default_dof_pos = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
-        for i in range(self.num_dofs):
-            name = self.dof_names[i]
-            angle = 0.
-            # if name in self.cfg.init_state.control_joint_angles.keys():
-            #     self.control_joints_idx[self.cfg.init_state.control_joint_idx[name]] = i
-            if name in self.cfg.init_state.default_joint_angles.keys():
-                angle = self.cfg.init_state.default_joint_angles[name]
+        for name in self.cfg.control.control_joint_idx.keys():
+            i = self.dof_names.index(name)
+            angle = self.cfg.init_state.default_joint_angles[name]
             self.default_dof_pos[i] = angle
             found = False
             for dof_name in self.cfg.control.stiffness.keys():
@@ -250,13 +298,43 @@ class AirHockeyBase(LeggedRobot):
 
         self.ctrl_torques = torch.zeros(self.num_envs, len(self.ctrl_joints_idx), dtype=torch.float, device=self.device,
                                         requires_grad=False)
-        self.ctrl_dof_pos = self.dof_pos[..., self.ctrl_joints_idx]
-        self.ctrl_dof_vel = self.dof_vel[..., self.ctrl_joints_idx]
+
         self.ctrl_actions = torch.Tensor(self.num_envs, 3, len(self.ctrl_joints_idx)).to(
             self.device)  # 3: q, qd, qdd
         self.ctrl_p_gains = self.p_gains[self.ctrl_joints_idx]
-        self.ctrl_d_gains = self.p_gains[self.ctrl_joints_idx]
+        self.ctrl_d_gains = self.d_gains[self.ctrl_joints_idx]
         self.ctrl_torque_limits = self.torque_limits[self.ctrl_joints_idx]
+
+        body_state = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        self.body_state = gymtorch.wrap_tensor(body_state)
+        self.body_pos = self.body_state.view(self.num_envs, self.num_bodies, -1)[..., :3]
+        self.body_quat = self.body_state.view(self.num_envs, self.num_bodies, -1)[..., 3:7]
+
+        self.body_vel = self.body_state.view(self.num_envs, self.num_bodies, -1)[..., 7:10]
+        self.body_ang_vel = self.body_state.view(self.num_envs, self.num_bodies, -1)[..., 10:13]
+        self.robot_base_body_id = self.body_names.index(self.cfg.control.robot_base_body)
+        self.actor_body_id = self.body_names.index(self.cfg.control.actor_body)
+        self.update_ctrl_dof_state()
+
+    def update_ctrl_dof_state(self):
+        self.ctrl_dof_pos = self.dof_pos.view(self.num_envs, -1)[..., self.ctrl_joints_idx]
+        self.ctrl_dof_vel = self.dof_vel.view(self.num_envs, -1)[..., self.ctrl_joints_idx]
+        self.prev_pos = self.ctrl_dof_pos.detach().cpu().numpy()
+        self.prev_vel = self.ctrl_dof_vel.detach().cpu().numpy()
+        self.prev_acc = np.zeros_like(self.prev_vel)
+        self.jerk = np.zeros_like(self.prev_vel)
+        self.prev_controller_cmd_pos = np.copy(self.prev_pos)
+
+    def _update_tf(self):
+        self.t_world_actor = self.body_pos[:, self.actor_body_id]
+        self.t_world_actor[:, 2] = 0.  # set z to zero
+        self.q_world_actor = self.body_quat[:, self.actor_body_id]
+        self.t_world_base = self.body_pos[:, self.robot_base_body_id]
+        self.t_world_base[:, 2] = 0.  # set z to zero
+        self.q_world_base = self.body_quat[:, self.robot_base_body_id]
+        q_base_world, t_base_world = tf_inverse(self.q_world_base, self.t_world_base)
+        self.q_base_actor, self.t_base_actor = tf_combine(q_base_world, t_base_world, self.q_world_actor,
+                                                          self.t_world_actor)
 
     def _create_envs(self):
         """ Creates environments:
@@ -296,11 +374,11 @@ class AirHockeyBase(LeggedRobot):
         body_names = self.gym.get_asset_rigid_body_names(robot_asset)
         self.dof_names = self.gym.get_asset_dof_names(robot_asset)
 
-        idx = self.cfg.init_state.control_joint_idx.keys()
+        idx = self.cfg.control.control_joint_idx.keys()
         self.ctrl_joints_idx = np.zeros(len(idx), dtype=np.int32);
         dof_dict = self.gym.get_asset_dof_dict(robot_asset)
         for name in idx:
-            self.ctrl_joints_idx[self.cfg.init_state.control_joint_idx[name]] = int(dof_dict[name])
+            self.ctrl_joints_idx[self.cfg.control.control_joint_idx[name]] = int(dof_dict[name])
         all_numbers = np.arange(self.num_actions)
         free_joints = np.setdiff1d(all_numbers, self.ctrl_joints_idx)
         self.ctrl_joints_idx_full = np.concatenate((self.ctrl_joints_idx, free_joints))
@@ -337,6 +415,7 @@ class AirHockeyBase(LeggedRobot):
         env_upper = gymapi.Vec3(0., 0., 0.)
         self.actor_handles = []
         self.envs = []
+
         for i in range(self.num_envs):
             # create env instance
             env_handle = self.gym.create_env(self.sim, env_lower, env_upper, int(np.sqrt(self.num_envs)))
@@ -344,10 +423,11 @@ class AirHockeyBase(LeggedRobot):
             pos[:2] += torch_rand_float(-1., 1., (2, 1), device=self.device).squeeze(1)
             start_pose.p = gymapi.Vec3(*pos)
 
-            rigid_shape_props = self._process_rigid_shape_props(rigid_shape_props_asset, i)
-            self.gym.set_asset_rigid_shape_properties(robot_asset, rigid_shape_props)
             actor_handle = self.gym.create_actor(env_handle, robot_asset, start_pose, self.cfg.asset.name, i,
                                                  self.cfg.asset.self_collisions, 0)
+            shape_idx = self.gym.get_actor_rigid_body_shape_indices(env_handle, actor_handle)
+            rigid_shape_props = self._process_rigid_shape_props(rigid_shape_props_asset, shape_idx, i)
+            self.gym.set_asset_rigid_shape_properties(robot_asset, rigid_shape_props)
             dof_props = self._process_dof_props(dof_props_asset, i)
             self.gym.set_actor_dof_properties(env_handle, actor_handle, dof_props)
             body_props = self.gym.get_actor_rigid_body_properties(env_handle, actor_handle)
@@ -355,28 +435,38 @@ class AirHockeyBase(LeggedRobot):
             body_props = self._process_rigid_body_props(body_props, i, self.body_names)
             self.gym.set_actor_rigid_body_properties(env_handle, actor_handle, body_props, recomputeInertia=True)
 
+            self.envs.append(env_handle)
+            self.actor_handles.append(actor_handle)
+
             # set body colors
             for body_name in self.cfg.asset.colors.keys():
                 body_idx = body_names.index(body_name)
                 self.gym.set_rigid_body_color(env_handle, actor_handle, body_idx, gymapi.MESH_VISUAL_AND_COLLISION,
                                               gymapi.Vec3(*self.cfg.asset.colors[body_name]))
 
-                self.envs.append(env_handle)
-                self.actor_handles.append(actor_handle)
+            ctrl_actor_idx = np.zeros(len(self.cfg.control.control_joint_idx.keys()), dtype=np.int32)
+            # iterate all actuator joint names
+            for i in range(self.gym.get_asset_actuator_count(robot_asset)):
+                joint_name = self.gym.get_asset_actuator_joint_name(robot_asset, i)
+            if joint_name in self.cfg.control.control_joint_idx.keys():
+                ctrl_actor_idx[self.cfg.control.control_joint_idx[joint_name]] = i
+            self.ctrl_actor_idx = torch.from_numpy(ctrl_actor_idx).to(torch.int32).to(self.device)
 
-                ctrl_actor_idx = np.zeros(len(self.cfg.init_state.control_joint_idx.keys()), dtype=np.int32)
-                # iterate all actuator joint names
-                for i in range(self.gym.get_asset_actuator_count(robot_asset)):
-                    joint_name = self.gym.get_asset_actuator_joint_name(robot_asset, i)
-                if joint_name in self.cfg.init_state.control_joint_idx.keys():
-                    ctrl_actor_idx[self.cfg.init_state.control_joint_idx[joint_name]] = i
-                self.ctrl_actor_idx = torch.from_numpy(ctrl_actor_idx).to(torch.int32).to(self.device)
-
-    def _process_rigid_shape_props(self, rigid_shape_props_asset, env_id):
+    def _process_rigid_shape_props(self, rigid_shape_props_asset, idx, env_id):
+        for i, body_names in enumerate(self.body_names):
+            props = rigid_shape_props_asset[idx[i].start:idx[i].start + idx[i].count]
+            # if body_names.endswith('body_ee') or body_names.startswith('puck') :
+            #     _ = [setattr(prop, 'filter', 0) for prop in props]
+            # else:
+            #     _ = [setattr(prop, 'filter', 1) for prop in props]
         # TODO read friction
         return rigid_shape_props_asset
 
     def _process_dof_props(self, dof_props_asset, env_id):
+        for i, name in enumerate(self.dof_names):
+            if name in self.cfg.control.control_joint_idx.keys():
+                dof_props_asset[i]['stiffness'] = self.cfg.asset.solref[0]
+                dof_props_asset[i]['damping'] = self.cfg.asset.solref[1]
         # TODO read pos/vel/torque limits
         return super(AirHockeyBase, self)._process_dof_props(dof_props_asset, env_id)
 
@@ -385,6 +475,8 @@ class AirHockeyBase(LeggedRobot):
             # if name starts with table
             if name.startswith('table'):
                 prop.mass = 5000
+            # if name in self.cfg.control.no_sim_body:
+            #     prop.flags = gymapi.RIGID_BODY_DISABLE_SIMULATION
         # return super(AirHockeyBase, self)._process_rigid_body_props(body_props, env_id)
         return body_props
 
@@ -449,8 +541,8 @@ class AirHockeyBase(LeggedRobot):
             env_ids] = self.default_dof_pos  # * torch_rand_float(0.5, 1.5, (len(env_ids), self.num_dof), device=self.device
         # reset puck pos
         reset_puck_pos = self.get_reset_puck_pos(self.hit_range)
-        self.dof_pos[env_ids, self.puck_pos_idx[:2]] = torch.tensor(reset_puck_pos, device=self.device).to(
-            torch.float32)
+        self.dof_pos[env_ids, self.puck_pos_idx[0]] = reset_puck_pos[0]
+        self.dof_pos[env_ids, self.puck_pos_idx[1]] = reset_puck_pos[1]
         self.dof_vel[env_ids] = 0.
 
         env_ids_int32 = env_ids.to(dtype=torch.int32)
@@ -458,12 +550,21 @@ class AirHockeyBase(LeggedRobot):
                                               gymtorch.unwrap_tensor(self.dof_state),
                                               gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
 
-        print("reset puck pos: ", reset_puck_pos)
-
     def reset(self):
         # TODO: reset prev_pos, prev_vel, prev_acc, self.prev_controller_cmd_pos
+        # we have 10 joints, but only control 3 of them, so num_actions for the controller is 3, but 10 for the env
+        # override reset to work around this
+        while (not self.tf_ready):
+            self.reset_idx(torch.arange(self.num_envs, device=self.device))
+            self.simulate_step()
+            self._init_buffers()
+            self._update_tf()
+            self.tf_ready = self.check_tf_ready()
+        self.compute_observations()
 
-        return super(AirHockeyBase, self).reset()
+        # obs, privileged_obs, _, _, _ = self.step(
+        #     torch.zeros(self.num_envs, self.num_ctrl, device=self.device, requires_grad=False))
+        return self.obs_buf, None
 
     def check_termination(self):
         """ Check if environments need to be reset
