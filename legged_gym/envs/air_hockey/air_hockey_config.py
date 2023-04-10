@@ -8,7 +8,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 3
+        num_envs = 200
         num_observations = 12
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
@@ -31,7 +31,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         self_collisions = 0  # 1 to disable, 0 to enable...bitwise filter
         disable_gravity = False
         solref = [0.02, 0.3]
-        terminate_after_contacts_on = ['rim']
+        terminate_after_contacts_on = ['planar_robot_1/body_ee']
 
     class sim(LeggedRobotCfg.sim):
         dt = 0.001
@@ -90,12 +90,15 @@ class AirHockeyCfg(LeggedRobotCfg):
 
     class rewards:
         class scales:
-            termination = 0.0
-            ee_pos = -0.1
-            ee_vel = -0.1
-            jerk = -0.1
+            ee_pos = -100
+            ee_vel = -100
+            jerk = -100
             collision = 0
-            termination = -10000
+            termination = -1e7
+
+            torques = -0.00001
+            dof_vel = -0.
+            dof_acc = -2.5e-7
 
         only_positive_rewards = True  # if true negative total rewards are clipped at zero (avoids early termination problems)
         tracking_sigma = 0.25  # tracking reward = exp(-error^2/sigma)
