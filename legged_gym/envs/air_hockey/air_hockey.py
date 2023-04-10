@@ -631,17 +631,27 @@ class AirHockeyBase(LeggedRobot):
         """
         return self.t_ee_puck_norm
 
-    def _reward_ee_vel(self):
+    def _reward_final_ee_vel(self):
         """ Reward for end-effector velocity
         """
         # get the difference between ee_vel and target_ee_vel
+        ee_vel = self.ee_vel[:, :2]
         t_ee_vel_diff = self.ee_vel[:, :2] - self.target_ee_vel
+        ee_vel_norm = torch.norm(self.ee_vel[:, :2], p=2, dim=1)
+        target_vel_norm = torch.norm(self.target_ee_vel, p=2, dim=1)
+        # get angle between ee_vel and target_ee_vel
+        dot = torch.sum(self.ee_vel[:, :2] * self.target_ee_vel, dim=1)
+        t_ee_vel_diff_angle = dot / (ee_vel_norm * target_vel_norm)
+
         # get l1 norm of t_ee_vel_diff
         t_ee_vel_diff_norm = torch.norm(t_ee_vel_diff, p=1, dim=1)
         # trunc = self.t_ee_puck_norm / self.cfg.rewards.max_vel_trunc_dist
         # trunc = torch.clamp(trunc, 0, 1)
         # t_ee_vel_diff_norm = t_ee_vel_diff_norm * trunc
-        return t_ee_vel_diff_norm
+        reward_scale_angle = 10
+        final_reward = t_ee_vel_diff_norm + reward_scale_angle * t_ee_vel_diff_angle
+        masked_reward = torch.matmul(final_reward, self.reset_buf.float())
+        return masked_reward
 
     def _reward_jerk(self):
         return 0
