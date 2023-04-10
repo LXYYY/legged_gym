@@ -36,6 +36,8 @@ class AirHockeyBase(LeggedRobot):
         self.puck_roll = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
         self.puck_pitch = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
         self.tf_ready = False
+        self.puck_pos = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float)
+        self.puck_vel = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float)
 
     def clone_mujoco_controller(self, controller: PositionControlPlanar):
         # clone the mujoco controller and delete the original to reduce memory usage
@@ -52,13 +54,15 @@ class AirHockeyBase(LeggedRobot):
     def clone_env_info(self, base_env):
         self.env_info = base_env.env_info
         self.n_agents = base_env.n_agents
+        t_base_goal = np.array([self.env_info['table']['length'], 0], dtype=np.float32)
+        self.t_base_goal = torch.from_numpy(t_base_goal).to(self.device).unsqueeze(0)
 
     def check_tf_ready(self):
         error = self.t_base_actor[0, :2].detach().cpu().numpy() + self.env_info['robot']['base_frame'][0][:2, 3]
         # check any error dim is greater than 5e-2
         return np.all(np.abs(error) < 1e-3)
 
-    def puck_2d_in_robot_frame(self, puck_actor, t_base_actor, q_base_actor, type):
+    def to_2d_in_robot_frame(self, puck_actor, t_base_actor, q_base_actor, type):
         puck_base = torch.zeros_like(puck_actor)
         if type == 'pos':
             ea_actor_puck = torch.zeros(self.num_envs, 3, device=self.device, dtype=torch.float)
@@ -128,7 +132,8 @@ class AirHockeyBase(LeggedRobot):
             self._update_tf()
             self.tf_ready = self.check_tf_ready()
 
-        if self.tf_ready:
+        traj = None
+        if self.tf_ready and self.cfg.control.decimation > 1:
             if actions is not None:
                 actions = actions.detach().cpu().numpy()
                 actions_env_id = np.array([[actions[i], i] for i in range(actions.shape[0])])
@@ -144,12 +149,15 @@ class AirHockeyBase(LeggedRobot):
             self.update_ctrl_dof_state()
             # check if the tf is ready, i.e. close to base_env
             if self.tf_ready:
-                actions_step = np.array([next(t) for t in traj]).reshape(self.num_envs,
-                                                                         -1)  # num_envs x [q qd qdd] x num_joints
-                actions_step_env_id = np.array([[actions_step[i], i] for i in range(actions_step.shape[0])])
-                clipped_action = np.apply_along_axis(self.enforce_safety_limits, 1, actions_step_env_id)
+                if traj is not None:
+                    actions_step = np.array([next(t) for t in traj]).reshape(self.num_envs,
+                                                                             -1)  # num_envs x [q qd qdd] x num_joints
+                    actions_step_env_id = np.array([[actions_step[i], i] for i in range(actions_step.shape[0])])
+                    clipped_action = np.apply_along_axis(self.enforce_safety_limits, 1, actions_step_env_id)
+                    self.ctrl_actions = torch.from_numpy(clipped_action).to(torch.float32).to(self.device)
+                else:
+                    self.ctrl_actions = actions
 
-                self.ctrl_actions = torch.from_numpy(clipped_action).to(torch.float32).to(self.device)
                 self.ctrl_torques = self._compute_torques(self.ctrl_actions).view(self.ctrl_torques.shape)
                 self.torques[:, self.ctrl_joints_idx[0]] = self.ctrl_torques[:, 0]
                 self.torques[:, self.ctrl_joints_idx[1]] = self.ctrl_torques[:, 1]
@@ -227,11 +235,19 @@ class AirHockeyBase(LeggedRobot):
         puck_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.puck_pos_idx, 1]
         joint_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 0]
         joint_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 1]
+        ee_pos = self.body_state.view(self.num_envs, self.num_bodies, -1)[:, self.ee_idx, 0:3]
+        ee_vel = self.body_state.view(self.num_envs, self.num_bodies, -1)[:, self.ee_idx, 7:10]
 
-        puck_pos = self.puck_2d_in_robot_frame(puck_pos, self.t_base_actor, self.q_base_actor, type='pos')
-        puck_vel = self.puck_2d_in_robot_frame(puck_vel, self.t_base_actor, self.q_base_actor, type='vel')
+        self.puck_pos = self.to_2d_in_robot_frame(puck_pos, self.t_base_actor, self.q_base_actor, type='pos')
+        self.puck_vel = self.to_2d_in_robot_frame(puck_vel, self.t_base_actor, self.q_base_actor, type='vel')
 
-        self.obs_buf = torch.cat((puck_pos, puck_vel, joint_pos, joint_vel), dim=1)
+        self.ee_pos = self.to_2d_in_robot_frame(ee_pos, self.t_base_actor, self.q_base_actor, type='pos')
+        self.ee_vel = self.to_2d_in_robot_frame(ee_vel, self.t_base_actor, self.q_base_actor, type='vel')
+
+        self.t_ee_puck = self.ee_pos - self.puck_pos
+        self.t_ee_puck_norm = torch.norm(self.t_ee_puck, p=1, dim=1)
+
+        self.obs_buf = torch.cat((self.puck_pos, self.puck_vel, joint_pos, joint_vel), dim=1)
 
     def _init_buffers(self):
         """ Initialize torch tensors which will contain simulation states and processed quantities
@@ -316,6 +332,27 @@ class AirHockeyBase(LeggedRobot):
         self.actor_body_id = self.body_names.index(self.cfg.control.actor_body)
         self.update_ctrl_dof_state()
 
+        penalized_contact_names = []
+        for name in self.cfg.asset.penalize_contacts_on:
+            penalized_contact_names.extend([s for s in self.body_names if name in s])
+        termination_contact_names = []
+        for name in self.cfg.asset.terminate_after_contacts_on:
+            termination_contact_names.extend([s for s in self.body_names if name in s])
+
+        self.penalised_contact_indices = torch.zeros(len(penalized_contact_names), dtype=torch.long, device=self.device,
+                                                     requires_grad=False)
+        for i in range(len(penalized_contact_names)):
+            self.penalised_contact_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0],
+                                                                                      self.actor_handles[0],
+                                                                                      penalized_contact_names[i])
+
+        self.termination_contact_indices = torch.zeros(len(termination_contact_names), dtype=torch.long,
+                                                       device=self.device, requires_grad=False)
+        for i in range(len(termination_contact_names)):
+            self.termination_contact_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0],
+                                                                                        self.actor_handles[0],
+                                                                                        termination_contact_names[i])
+
     def update_ctrl_dof_state(self):
         self.ctrl_dof_pos = self.dof_pos.view(self.num_envs, -1)[..., self.ctrl_joints_idx]
         self.ctrl_dof_vel = self.dof_vel.view(self.num_envs, -1)[..., self.ctrl_joints_idx]
@@ -387,6 +424,7 @@ class AirHockeyBase(LeggedRobot):
         self.num_bodies = len(body_names)
         self.body_names = body_names
         self.num_dofs = len(self.dof_names)
+        self.ee_idx = self.body_names.index(self.cfg.control.ee_body)
 
         # get the dof indices of the obs
         self.puck_pos_idx = np.zeros(len(self.cfg.init_state.puck_pos), dtype=np.int32)
@@ -560,7 +598,11 @@ class AirHockeyBase(LeggedRobot):
             self._init_buffers()
             self._update_tf()
             self.tf_ready = self.check_tf_ready()
+
         self.compute_observations()
+
+        t_puck_goal = self.get_t_puck_goal()
+        self.target_ee_vel = torch.nn.functional.normalize(t_puck_goal, dim=-1) * self.cfg.rewards.max_puck_vel
 
         # obs, privileged_obs, _, _, _ = self.step(
         #     torch.zeros(self.num_envs, self.num_ctrl, device=self.device, requires_grad=False))
@@ -569,12 +611,34 @@ class AirHockeyBase(LeggedRobot):
     def check_termination(self):
         """ Check if environments need to be reset
         """
-        self.reset_buf.zero_()
-        self.time_out_buf = self.episode_length_buf > self.max_episode_length  # no terminal reward for time-outs
-        self.reset_buf |= self.time_out_buf
+        super(AirHockeyBase, self).check_termination()
+
+        # check if ee is close to puck
+
+        self.reset_buf |= self.t_ee_puck_norm < self.cfg.rewards.min_puck_ee_dist
 
     def compute_reward(self):
         """ Compute rewards
         """
         # self.rewards
-        pass
+        super(AirHockeyBase, self).compute_reward()
+
+    def get_t_puck_goal(self):
+        return (-self.puck_pos[:, :2]) + self.t_base_goal
+
+    def _reward_ee_pos(self):
+        """ Reward for end-effector position
+        """
+        return self.t_ee_puck_norm
+
+    def _reward_ee_vel(self):
+        """ Reward for end-effector velocity
+        """
+        # get the difference between ee_vel and target_ee_vel
+        t_ee_vel_diff = self.ee_vel - self.target_ee_vel
+        # get l1 norm of t_ee_vel_diff
+        t_ee_vel_diff_norm = torch.norm(t_ee_vel_diff, p=1, dim=1)
+        # trunc = self.t_ee_puck_norm / self.cfg.rewards.max_vel_trunc_dist
+        # trunc = torch.clamp(trunc, 0, 1)
+        # t_ee_vel_diff_norm = t_ee_vel_diff_norm * trunc
+        return t_ee_vel_diff_norm
