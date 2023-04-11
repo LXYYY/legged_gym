@@ -48,8 +48,11 @@ class AirHockeyBase(LeggedRobot):
         self._num_coeffs = controller._num_coeffs
         self._timestep = self.sim_params.dt
         self._n_intermediate_steps = self.cfg.control.decimation
-        self.get_reset_puck_pos = controller.get_reset_puck_pos
-        self.hit_range = controller.hit_range
+        self.hit_range = torch.tensor(controller.hit_range, device=self.device, dtype=torch.float)
+
+    def get_reset_puck_pos(self):
+        return torch.rand(self.num_envs, 2, device=self.device, dtype=torch.float) * (
+                self.hit_range[:, 1] - self.hit_range[:, 0]) + self.hit_range[:, 0]
 
     def clone_env_info(self, base_env):
         self.env_info = base_env.env_info
@@ -241,10 +244,10 @@ class AirHockeyBase(LeggedRobot):
         self.puck_pos = self.to_2d_in_robot_frame(puck_pos, self.t_base_actor, self.q_base_actor, type='pos')
         self.puck_vel = self.to_2d_in_robot_frame(puck_vel, self.t_base_actor, self.q_base_actor, type='vel')
 
-        self.ee_pos = self.to_2d_in_robot_frame(ee_pos, self.t_base_actor, self.q_base_actor, type='pos')
-        self.ee_vel = self.to_2d_in_robot_frame(ee_vel, self.t_base_actor, self.q_base_actor, type='vel')
+        self.ee_pos = self.to_2d_in_robot_frame(ee_pos, self.t_base_world, self.q_base_world, type='pos')
+        self.ee_vel = self.to_2d_in_robot_frame(ee_vel, self.t_base_world, self.q_base_world, type='vel')
 
-        self.t_ee_puck = self.ee_pos - self.puck_pos
+        self.t_ee_puck = self.ee_pos[:, :2] - self.puck_pos[:, :2]
         self.t_ee_puck_norm = torch.norm(self.t_ee_puck, p=1, dim=1)
 
         self.obs_buf = torch.cat((self.puck_pos, self.puck_vel, joint_pos, joint_vel), dim=1)
@@ -369,8 +372,8 @@ class AirHockeyBase(LeggedRobot):
         self.t_world_base = self.body_pos[:, self.robot_base_body_id]
         self.t_world_base[:, 2] = 0.  # set z to zero
         self.q_world_base = self.body_quat[:, self.robot_base_body_id]
-        q_base_world, t_base_world = tf_inverse(self.q_world_base, self.t_world_base)
-        self.q_base_actor, self.t_base_actor = tf_combine(q_base_world, t_base_world, self.q_world_actor,
+        self.q_base_world, self.t_base_world = tf_inverse(self.q_world_base, self.t_world_base)
+        self.q_base_actor, self.t_base_actor = tf_combine(self.q_base_world, self.t_base_world, self.q_world_actor,
                                                           self.t_world_actor)
 
     def _create_envs(self):
@@ -578,9 +581,9 @@ class AirHockeyBase(LeggedRobot):
         self.dof_pos[
             env_ids] = self.default_dof_pos  # * torch_rand_float(0.5, 1.5, (len(env_ids), self.num_dof), device=self.device
         # reset puck pos
-        reset_puck_pos = self.get_reset_puck_pos(self.hit_range)
-        self.dof_pos[env_ids, self.puck_pos_idx[0]] = reset_puck_pos[0]
-        self.dof_pos[env_ids, self.puck_pos_idx[1]] = reset_puck_pos[1]
+        reset_puck_pos = self.get_reset_puck_pos()
+        self.dof_pos[env_ids, self.puck_pos_idx[0]] = reset_puck_pos[env_ids, 0]
+        self.dof_pos[env_ids, self.puck_pos_idx[1]] = reset_puck_pos[env_ids, 1]
         self.dof_vel[env_ids] = 0.
 
         env_ids_int32 = env_ids.to(dtype=torch.int32)
@@ -614,8 +617,8 @@ class AirHockeyBase(LeggedRobot):
         super(AirHockeyBase, self).check_termination()
 
         # check if ee is close to puck
-
-        self.reset_buf |= self.t_ee_puck_norm < self.cfg.rewards.min_puck_ee_dist
+        self.reach_puck_buf = self.t_ee_puck_norm < self.cfg.rewards.min_puck_ee_dist
+        self.reset_buf |= self.reach_puck_buf
 
     def compute_reward(self):
         """ Compute rewards
@@ -650,7 +653,7 @@ class AirHockeyBase(LeggedRobot):
         # t_ee_vel_diff_norm = t_ee_vel_diff_norm * trunc
         reward_scale_angle = 10
         final_reward = t_ee_vel_diff_norm + reward_scale_angle * t_ee_vel_diff_angle
-        masked_reward = torch.matmul(final_reward, self.reset_buf.float())
+        masked_reward = torch.matmul(final_reward, self.reach_puck_buf.float())
         return masked_reward
 
     def _reward_jerk(self):

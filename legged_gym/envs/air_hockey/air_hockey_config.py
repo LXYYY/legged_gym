@@ -93,7 +93,7 @@ class AirHockeyCfg(LeggedRobotCfg):
             ee_pos = -100
             final_ee_vel = 1e4
             jerk = -100
-            collision = -1e6
+            collision = -1e2
             termination = -0
 
             torques = -0.00001
