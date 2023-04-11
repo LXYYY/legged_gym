@@ -8,13 +8,13 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 30
+        num_envs = 1000
         num_observations = 12
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
         env_spacing = 3.  # not used with heightfields/trimeshes
         send_timeouts = True  # send time out information to the algorithm
-        episode_length_s = 20  # episode length in seconds
+        episode_length_s = 3  # episode length in seconds
 
     class terrain(LeggedRobotCfg.terrain):
         mesh_type = 'plane'
@@ -31,12 +31,13 @@ class AirHockeyCfg(LeggedRobotCfg):
         self_collisions = 0  # 1 to disable, 0 to enable...bitwise filter
         disable_gravity = False
         solref = [0.02, 0.3]
+        penalize_contacts_on = ['planar_robot_1/body_ee']
 
     class sim(LeggedRobotCfg.sim):
         dt = 0.001
 
     class control(LeggedRobotCfg.control):
-        decimation = 20
+        decimation = 1
         control_joint_idx = {
             'planar_robot_1/joint_1': 0,
             'planar_robot_1/joint_2': 1,
@@ -56,6 +57,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         # Frames chain: world -> env(?) -> air_hockey -> robot_base -> robot_ee/puck
         robot_base_body = 'planar_robot_1/base'
         actor_body = 'air_hockey'
+        ee_body = 'planar_robot_1/body_ee'
 
     class init_state(LeggedRobotCfg.init_state):
         default_joint_angles = {
@@ -82,10 +84,41 @@ class AirHockeyCfg(LeggedRobotCfg):
         pos = [0, 0, 0]
 
     class viewer(LeggedRobotCfg.viewer):
-    #     ref_env = 0
+        #     ref_env = 0
         pos = [3, 0, 12]  # [m]
         lookat = [0, 0, 1]  # [m]
 
+    class rewards:
+        class scales:
+            ee_pos = -100
+            final_ee_vel = 1e4
+            jerk = -100
+            collision = -1e2
+            termination = -0
+
+            torques = -0.00001
+            dof_vel = -0.1
+            dof_acc = -2.5e-7
+
+        only_positive_rewards = True  # if true negative total rewards are clipped at zero (avoids early termination problems)
+        tracking_sigma = 0.25  # tracking reward = exp(-error^2/sigma)
+        soft_dof_pos_limit = 1.  # percentage of urdf limits, values above this limit are penalized
+        soft_dof_vel_limit = 1.
+        soft_torque_limit = 1.
+        base_height_target = 1.
+        max_contact_force = 100.  # forces above this value are penalized
+
+        only_positive_rewards = False
+        max_puck_vel = 1.
+        min_puck_ee_dist = 0.1
+        max_vel_trunc_dist = 0.5
+
+        tracking_sigma = 0.25  # tracking reward = exp(-error^2/sigma)
+        soft_dof_pos_limit = 1.  # percentage of urdf limits, values above this limit are penalized
+        soft_dof_vel_limit = 1.
+        soft_torque_limit = 1.
+        base_height_target = 1.
+        max_contact_force = 100.  # forces above this value are penalized
 
 class AirHockeyCfgPPO(LeggedRobotCfgPPO):
-    pass
+    num_actions = 6
