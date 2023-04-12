@@ -16,6 +16,8 @@ class AirHockeyCfg(LeggedRobotCfg):
         send_timeouts = True  # send time out information to the algorithm
         episode_length_s = 3  # episode length in seconds
 
+        hierarchical = True
+
     class terrain(LeggedRobotCfg.terrain):
         mesh_type = 'plane'
 
@@ -93,11 +95,22 @@ class AirHockeyCfg(LeggedRobotCfg):
             ee_pos = -100
             final_ee_vel = 1e4
             jerk = -100
-            collision = -1e2
+            collision = -1e4
             termination = -0
 
-            torques = -0.00001
-            dof_vel = -0.1
+            torques = -5e-7
+            dof_vel = -5e-7
+            dof_acc = -2.5e-7
+
+        class mid_scales:
+            ee_pos_subgoal = -1
+            ee_vel_subgoal = -1
+
+        class low_scales:
+            dof_pos_subgoal = -100
+            torques = -5e-7
+            dof_vel_subgoal = -1
+            dof_vel = -5e-7
             dof_acc = -2.5e-7
 
         only_positive_rewards = True  # if true negative total rewards are clipped at zero (avoids early termination problems)
@@ -110,8 +123,9 @@ class AirHockeyCfg(LeggedRobotCfg):
 
         only_positive_rewards = False
         max_puck_vel = 1.
-        min_puck_ee_dist = 0.1
+        min_puck_ee_dist = 0.01
         max_vel_trunc_dist = 0.5
+        min_dof_pos_done = 0.002  # rad >~ 0.1 deg
 
         tracking_sigma = 0.25  # tracking reward = exp(-error^2/sigma)
         soft_dof_pos_limit = 1.  # percentage of urdf limits, values above this limit are penalized
@@ -120,5 +134,34 @@ class AirHockeyCfg(LeggedRobotCfg):
         base_height_target = 1.
         max_contact_force = 100.  # forces above this value are penalized
 
+
 class AirHockeyCfgPPO(LeggedRobotCfgPPO):
     num_actions = 6
+
+    class policy:
+        class high(LeggedRobotCfgPPO.policy):
+            num_actions = 4  # x,y,vel_x,vel_y
+            num_obs = 12  # num_obs+t
+            num_steps = 5
+            num_steps_per_env = 2
+            actor_hidden_dims = [64, 64]
+            critic_hidden_dims = [64, 64]
+            obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+            activation = 'relu'
+
+        class mid(LeggedRobotCfgPPO.policy):
+            num_actions = 6  # q, qd for 3 joints
+            num_obs = 11  # 6+high_actions+t q, qd for 3 joints
+            num_steps = 20
+            actor_hidden_dims = [128, 64, 32]
+            critic_hidden_dims = [128, 64, 32]
+            obs_idx = [6, 7, 8, 9, 10, 11]
+            activation = 'relu'
+
+        class low(LeggedRobotCfgPPO.policy):
+            num_actions = 6  # q, qd for 3 joints
+            num_obs = 13  # 6+mid_actions+t q, qd for 3 joints
+            actor_hidden_dims = [64, 32]
+            critic_hidden_dims = [64, 32]
+            obs_idx = [6, 7, 8, 9, 10, 11]
+            activation = 'relu'

@@ -9,6 +9,7 @@ from isaacgym import gymtorch, gymapi
 from isaacgym.torch_utils import *
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.legged_robot import LeggedRobot
+from legged_gym.utils.helpers import class_to_dict
 
 from .air_hockey_config import AirHockeyCfg
 from .transform import T_mat_from_body_state
@@ -38,6 +39,13 @@ class AirHockeyBase(LeggedRobot):
         self.tf_ready = False
         self.puck_pos = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float)
         self.puck_vel = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float)
+
+        self.hierarchical = cfg.env.hierarchical
+        if self.hierarchical:
+            self.mid_rew_buf = torch.zeros_like(self.rew_buf)
+            self.low_rew_buf = torch.zeros_like(self.rew_buf)
+            self.mid_done_buf = torch.zeros_like(self.rew_buf, dtype=torch.bool)
+            self.low_done_buf = torch.zeros_like(self.rew_buf, dtype=torch.bool)
 
     def clone_mujoco_controller(self, controller: PositionControlPlanar):
         # clone the mujoco controller and delete the original to reduce memory usage
@@ -128,7 +136,7 @@ class AirHockeyBase(LeggedRobot):
         return clipped_pos, clipped_vel
 
     # action shape: (num_envs, 2: [q, dq], num_joints=3)
-    def step(self, actions):
+    def step(self, actions, high_actions=None, mid_actions=None):
         if not self.tf_ready:
             self.reset()
             self._init_buffers()
@@ -169,6 +177,10 @@ class AirHockeyBase(LeggedRobot):
                 # self.reset()
 
             self.simulate_step()
+
+        if high_actions is not None and mid_actions is not None:
+            self.high_actions = high_actions
+            self.mid_actions = mid_actions
 
         self.post_physics_step()
 
@@ -248,7 +260,7 @@ class AirHockeyBase(LeggedRobot):
         self.ee_vel = self.to_2d_in_robot_frame(ee_vel, self.t_base_world, self.q_base_world, type='vel')
 
         self.t_ee_puck = self.ee_pos[:, :2] - self.puck_pos[:, :2]
-        self.t_ee_puck_norm = torch.norm(self.t_ee_puck, p=1, dim=1)
+        self.t_ee_puck_norm = torch.norm(self.t_ee_puck, p=2, dim=1)
 
         self.obs_buf = torch.cat((self.puck_pos, self.puck_vel, joint_pos, joint_vel), dim=1)
 
@@ -625,6 +637,7 @@ class AirHockeyBase(LeggedRobot):
         """
         # self.rewards
         super(AirHockeyBase, self).compute_reward()
+        self._compute_reward_mid_low(self.high_actions, self.mid_actions)
 
     def get_t_puck_goal(self):
         return (-self.puck_pos[:, :2]) + self.t_base_goal
@@ -637,24 +650,129 @@ class AirHockeyBase(LeggedRobot):
     def _reward_final_ee_vel(self):
         """ Reward for end-effector velocity
         """
-        # get the difference between ee_vel and target_ee_vel
-        ee_vel = self.ee_vel[:, :2]
-        t_ee_vel_diff = self.ee_vel[:, :2] - self.target_ee_vel
-        ee_vel_norm = torch.norm(self.ee_vel[:, :2], p=2, dim=1)
-        target_vel_norm = torch.norm(self.target_ee_vel, p=2, dim=1)
-        # get angle between ee_vel and target_ee_vel
-        dot = torch.sum(self.ee_vel[:, :2] * self.target_ee_vel, dim=1)
-        t_ee_vel_diff_angle = dot / (ee_vel_norm * target_vel_norm)
-
-        # get l1 norm of t_ee_vel_diff
-        t_ee_vel_diff_norm = torch.norm(t_ee_vel_diff, p=1, dim=1)
-        # trunc = self.t_ee_puck_norm / self.cfg.rewards.max_vel_trunc_dist
-        # trunc = torch.clamp(trunc, 0, 1)
-        # t_ee_vel_diff_norm = t_ee_vel_diff_norm * trunc
-        reward_scale_angle = 10
-        final_reward = t_ee_vel_diff_norm + reward_scale_angle * t_ee_vel_diff_angle
-        masked_reward = torch.matmul(final_reward, self.reach_puck_buf.float())
+        ee_vel_diff = self.ee_vel[:, :2] - self.target_ee_vel
+        ee_vel_diff = torch.norm(ee_vel_diff, p=2, dim=1)
+        masked_reward = torch.matmul(ee_vel_diff, self.reach_puck_buf.float())
         return masked_reward
 
     def _reward_jerk(self):
         return 0
+
+    def _reward_ee_pos_subgoal(self, high_action):
+        """ Reward for end-effector position
+        """
+        ee_pos_subgoal = high_action[:, :2]
+        return torch.norm(ee_pos_subgoal - self.ee_pos[:, :2], p=1, dim=1)
+
+    def _reward_ee_vel_subgoal(self, high_action):
+        """ Reward for end-effector velocity
+        """
+        ee_vel_subgoal = high_action[:, 2:]
+        return torch.norm(ee_vel_subgoal - self.ee_vel[:, :2], p=1, dim=1)
+
+    def _reward_dof_pos_subgoal(self, mid_action):
+        dof_pos_subgoal = mid_action[:, :3]
+        return torch.norm(dof_pos_subgoal - self.dof_pos[:, :3], p=2, dim=1)
+
+    def _reward_dof_vel_subgoal(self, mid_action):
+        dof_vel_subgoal = mid_action[:, 3:]
+        return torch.norm(dof_vel_subgoal - self.dof_vel[:, :3], p=2, dim=1)
+
+    def _parse_cfg(self, cfg):
+        super(AirHockeyBase, self)._parse_cfg(cfg)
+        self.mid_reward_scales = class_to_dict(self.cfg.rewards.mid_scales)
+        self.low_reward_scales = class_to_dict(self.cfg.rewards.low_scales)
+
+    def _prepare_reward_function(self):
+        super(AirHockeyBase, self)._prepare_reward_function()
+
+        for key in list(self.mid_reward_scales.keys()):
+            scale = self.mid_reward_scales[key]
+            if scale == 0:
+                self.mid_reward_scales.pop(key)
+            else:
+                self.mid_reward_scales[key] *= self.dt
+            # if key.endwidth("subgoal"):
+        self.mid_reward_functions = []
+        self.mid_reward_functions_actions = []
+        self.mid_reward_names = []
+        self.mid_reward_names_actions = []
+        for name, scale in self.mid_reward_scales.items():
+            if name.endswith("subgoal"):
+                self.mid_reward_names_actions.append(name)
+                name = '_reward_' + name
+                self.mid_reward_functions_actions.append(getattr(self, name))
+            else:
+                self.mid_reward_names.append(name)
+                name = '_reward_' + name
+                self.mid_reward_functions.append(getattr(self, name))
+
+        for key in list(self.low_reward_scales.keys()):
+            scale = self.low_reward_scales[key]
+            if scale == 0:
+                self.low_reward_scales.pop(key)
+            else:
+                self.low_reward_scales[key] *= self.dt
+            # if key.endwidth("subgoal"):
+        self.low_reward_functions = []
+        self.low_reward_functions_actions = []
+        self.low_reward_names = []
+        self.low_reward_names_actions = []
+        for name, scale in self.low_reward_scales.items():
+            if name.endswith("subgoal"):
+                self.low_reward_names_actions.append(name)
+                name = '_reward_' + name
+                self.low_reward_functions_actions.append(getattr(self, name))
+            else:
+                self.low_reward_names.append(name)
+                name = '_reward_' + name
+                self.low_reward_functions.append(getattr(self, name))
+
+        mid_episode_sums = {
+            'Mid/' + name: torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+            for name in self.mid_reward_scales.keys()}
+        low_episode_sums = {
+            'Low/' + name: torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+            for name in self.low_reward_scales.keys()}
+        self.episode_sums.update(mid_episode_sums)
+        self.episode_sums.update(low_episode_sums)
+
+    def _compute_reward_mid_low(self, high_action, mid_action):
+        """ Compute rewards
+        """
+        # self.rewards
+        self.mid_rew_buf[:] = 0.
+        for i in range(len(self.mid_reward_names)):
+            name = self.mid_reward_names[i]
+            rew = self.mid_reward_functions[i]() * self.mid_reward_scales[name]
+            self.mid_rew_buf += rew
+            self.episode_sums['Mid/' + name] += rew
+        for i in range(len(self.mid_reward_names_actions)):
+            name = self.mid_reward_names_actions[i]
+            rew = self.mid_reward_functions_actions[i](high_action) * self.mid_reward_scales[name]
+            self.mid_rew_buf += rew
+            self.episode_sums['Mid/' + name] += rew
+
+        self.low_rew_buf[:] = 0.
+        for i in range(len(self.low_reward_names)):
+            name = self.low_reward_names[i]
+            rew = self.low_reward_functions[i]() * self.low_reward_scales[name]
+            self.low_rew_buf += rew
+            self.episode_sums['Low/' + name] += rew
+        for i in range(len(self.low_reward_names_actions)):
+            name = self.low_reward_names_actions[i]
+            rew = self.low_reward_functions_actions[i](mid_action) * self.low_reward_scales[name]
+            self.low_rew_buf += rew
+            self.episode_sums['Low/' + name] += rew
+
+        return self.mid_rew_buf, self.low_rew_buf
+
+    def compute_done_mid_low(self, high_action, mid_action):
+        """ Compute done
+        """
+        self.mid_done_buf = self._reward_ee_pos_subgoal(high_action) < self.cfg.rewards.min_puck_ee_dist
+        self.low_done_buf = self._reward_dof_pos_subgoal(mid_action) < self.cfg.rewards.min_dof_pos_done
+        return self.mid_done_buf, self.low_done_buf
+
+    def get_reward_mid_low(self):
+        return self.mid_rew_buf, self.low_rew_buf
