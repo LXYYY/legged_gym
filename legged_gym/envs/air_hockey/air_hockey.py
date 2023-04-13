@@ -640,7 +640,7 @@ class AirHockeyBase(LeggedRobot):
         # self.reach_puck_buf = self.t_ee_puck_norm < self.cfg.rewards.min_puck_ee_dist
         # self.reset_buf |= self.reach_puck_buf
 
-        self.reset_buf |= self.low_done_buf
+        # self.reset_buf |= self.low_done_buf
 
     def compute_reward(self):
         """ Compute rewards
@@ -687,7 +687,7 @@ class AirHockeyBase(LeggedRobot):
         dof_vel_subgoal = mid_action[:, 3:]
         return torch.norm(dof_vel_subgoal - self.joint_vel, p=2, dim=1)
 
-    def _reward_termination_low(self):
+    def _reward_low_termination(self):
         return self.low_done_buf
 
     def _parse_cfg(self, cfg):
@@ -702,7 +702,7 @@ class AirHockeyBase(LeggedRobot):
             scale = self.mid_reward_scales[key]
             if scale == 0:
                 self.mid_reward_scales.pop(key)
-            else:
+            elif not key.endswith("termination"):
                 self.mid_reward_scales[key] *= self.dt
             # if key.endwidth("subgoal"):
         self.mid_reward_functions = []
@@ -723,7 +723,7 @@ class AirHockeyBase(LeggedRobot):
             scale = self.low_reward_scales[key]
             if scale == 0:
                 self.low_reward_scales.pop(key)
-            else:
+            elif not key.endswith("termination"):
                 self.low_reward_scales[key] *= self.dt
             # if key.endwidth("subgoal"):
         self.low_reward_functions = []
@@ -794,6 +794,9 @@ class AirHockeyBase(LeggedRobot):
         self.mid_done_buf = self._reward_ee_pos_subgoal(self.high_actions) < self.cfg.rewards.min_puck_ee_dist
         self.low_done_buf = self.low_dof_pos_diff < self.cfg.rewards.min_dof_pos_done
         self.low_done_buf = self.low_done_buf.all(dim=1)
+        return self.mid_done_buf, self.low_done_buf
+
+    def get_done_mid_low(self):
         return self.mid_done_buf, self.low_done_buf
 
     def get_reward_mid_low(self):

@@ -107,15 +107,15 @@ class AirHockeyCfg(LeggedRobotCfg):
             # ee_vel_subgoal = -1
 
         class low_scales:
-            dof_pos_subgoal = -100
-            termination_low = 10000
-            # torques = -5e-7
-            # dof_vel_subgoal = -1
-            # dof_vel = -5e-7
-            # dof_acc = -2.5e-7
-            # dof_pos_limits = -1e4
-            # dof_vel_limits = -1e4
-            # torque_limits = -1e4
+            dof_pos_subgoal = -60
+            low_termination = 1000
+            torques = -5e-6
+            dof_vel_subgoal = -5
+            dof_vel = -5e-3
+            dof_acc = -2.5e-7
+            dof_pos_limits = -1e4
+            dof_vel_limits = -1e4
+            torque_limits = -1e4
 
         only_positive_rewards = True  # if true negative total rewards are clipped at zero (avoids early termination problems)
         tracking_sigma = 0.25  # tracking reward = exp(-error^2/sigma)
