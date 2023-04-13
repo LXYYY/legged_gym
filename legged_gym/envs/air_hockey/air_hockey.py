@@ -178,9 +178,8 @@ class AirHockeyBase(LeggedRobot):
 
             self.simulate_step()
 
-        if high_actions is not None and mid_actions is not None:
-            self.high_actions = high_actions
-            self.mid_actions = mid_actions
+        self.high_actions = high_actions if high_actions is not None else self.high_actions
+        self.mid_actions = mid_actions if mid_actions is not None else self.mid_actions
 
         self.post_physics_step()
 
@@ -229,6 +228,7 @@ class AirHockeyBase(LeggedRobot):
         self._post_physics_step_callback()
 
         # compute observations, rewards, resets, ...
+        self.compute_done_mid_low()
         self.check_termination()
         self.compute_reward()
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
@@ -248,8 +248,8 @@ class AirHockeyBase(LeggedRobot):
     def compute_observations(self):
         puck_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.puck_pos_idx, 0]
         puck_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.puck_pos_idx, 1]
-        joint_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 0]
-        joint_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 1]
+        self.joint_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 0]
+        self.joint_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 1]
         ee_pos = self.body_state.view(self.num_envs, self.num_bodies, -1)[:, self.ee_idx, 0:3]
         ee_vel = self.body_state.view(self.num_envs, self.num_bodies, -1)[:, self.ee_idx, 7:10]
 
@@ -262,7 +262,10 @@ class AirHockeyBase(LeggedRobot):
         self.t_ee_puck = self.ee_pos[:, :2] - self.puck_pos[:, :2]
         self.t_ee_puck_norm = torch.norm(self.t_ee_puck, p=2, dim=1)
 
-        self.obs_buf = torch.cat((self.puck_pos, self.puck_vel, joint_pos, joint_vel), dim=1)
+        self.obs_buf = torch.cat((self.puck_pos, self.puck_vel, self.joint_pos, self.joint_vel), dim=1)
+
+        dof_pos_subgoal = self.mid_actions[:, :3]
+        self.low_dof_pos_diff = dof_pos_subgoal - self.joint_pos
 
     def _init_buffers(self):
         """ Initialize torch tensors which will contain simulation states and processed quantities
@@ -297,6 +300,11 @@ class AirHockeyBase(LeggedRobot):
         self.d_gains = torch.zeros(self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device,
                                    requires_grad=False)
+        self.mid_actions = torch.zeros(self.num_envs, 6, dtype=torch.float, device=self.device,
+                                       requires_grad=False)
+        self.high_actions = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device,
+                                        requires_grad=False)
+
         self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device,
                                         requires_grad=False)
         self.last_dof_vel = torch.zeros_like(self.dof_vel)
@@ -629,8 +637,10 @@ class AirHockeyBase(LeggedRobot):
         super(AirHockeyBase, self).check_termination()
 
         # check if ee is close to puck
-        self.reach_puck_buf = self.t_ee_puck_norm < self.cfg.rewards.min_puck_ee_dist
-        self.reset_buf |= self.reach_puck_buf
+        # self.reach_puck_buf = self.t_ee_puck_norm < self.cfg.rewards.min_puck_ee_dist
+        # self.reset_buf |= self.reach_puck_buf
+
+        self.reset_buf |= self.low_done_buf
 
     def compute_reward(self):
         """ Compute rewards
@@ -671,12 +681,14 @@ class AirHockeyBase(LeggedRobot):
         return torch.norm(ee_vel_subgoal - self.ee_vel[:, :2], p=1, dim=1)
 
     def _reward_dof_pos_subgoal(self, mid_action):
-        dof_pos_subgoal = mid_action[:, :3]
-        return torch.norm(dof_pos_subgoal - self.dof_pos[:, :3], p=2, dim=1)
+        return torch.norm(self.low_dof_pos_diff, p=1, dim=1)
 
     def _reward_dof_vel_subgoal(self, mid_action):
         dof_vel_subgoal = mid_action[:, 3:]
-        return torch.norm(dof_vel_subgoal - self.dof_vel[:, :3], p=2, dim=1)
+        return torch.norm(dof_vel_subgoal - self.joint_vel, p=2, dim=1)
+
+    def _reward_termination_low(self):
+        return self.low_done_buf
 
     def _parse_cfg(self, cfg):
         super(AirHockeyBase, self)._parse_cfg(cfg)
@@ -737,6 +749,15 @@ class AirHockeyBase(LeggedRobot):
         self.episode_sums.update(mid_episode_sums)
         self.episode_sums.update(low_episode_sums)
 
+    def map_high_actions(self, actions):
+        """ Map actions to the environment
+        """
+        actions_x = actions[:, 0].unsqueeze(1)  # 0 - 1
+        actions_y = actions[:, 1].unsqueeze(1) - 0.5  # -0.5 - 0.5
+        actions_vxy = torch.nn.functional.normalize(actions[:, 2:], p=2, dim=1)
+        # vstack
+        return torch.cat((actions_x, actions_y, actions_vxy), dim=1)
+
     def _compute_reward_mid_low(self, high_action, mid_action):
         """ Compute rewards
         """
@@ -767,11 +788,12 @@ class AirHockeyBase(LeggedRobot):
 
         return self.mid_rew_buf, self.low_rew_buf
 
-    def compute_done_mid_low(self, high_action, mid_action):
+    def compute_done_mid_low(self):
         """ Compute done
         """
-        self.mid_done_buf = self._reward_ee_pos_subgoal(high_action) < self.cfg.rewards.min_puck_ee_dist
-        self.low_done_buf = self._reward_dof_pos_subgoal(mid_action) < self.cfg.rewards.min_dof_pos_done
+        self.mid_done_buf = self._reward_ee_pos_subgoal(self.high_actions) < self.cfg.rewards.min_puck_ee_dist
+        self.low_done_buf = self.low_dof_pos_diff < self.cfg.rewards.min_dof_pos_done
+        self.low_done_buf = self.low_done_buf.all(dim=1)
         return self.mid_done_buf, self.low_done_buf
 
     def get_reward_mid_low(self):
