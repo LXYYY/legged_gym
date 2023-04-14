@@ -439,6 +439,9 @@ class AirHockeyBase(LeggedRobot):
         # save body names from the asset
         body_names = self.gym.get_asset_rigid_body_names(robot_asset)
         self.dof_names = self.gym.get_asset_dof_names(robot_asset)
+        self.puck_x_dof_idx = self.dof_names.index("puck_x")
+        self.puck_y_dof_idx = self.dof_names.index("puck_y")
+        self.puck_z_dof_idx = self.dof_names.index("puck_z")
 
         idx = self.cfg.control.control_joint_idx.keys()
         self.ctrl_joints_idx = np.zeros(len(idx), dtype=np.int32);
@@ -522,11 +525,8 @@ class AirHockeyBase(LeggedRobot):
     def _process_rigid_shape_props(self, rigid_shape_props_asset, idx, env_id):
         for i, body_names in enumerate(self.body_names):
             props = rigid_shape_props_asset[idx[i].start:idx[i].start + idx[i].count]
-            # if body_names.endswith('body_ee') or body_names.startswith('puck') :
-            #     _ = [setattr(prop, 'filter', 0) for prop in props]
-            # else:
-            #     _ = [setattr(prop, 'filter', 1) for prop in props]
-        # TODO read friction
+            # if body_names.endswith('body_ee') or body_names.startswith('puck') or body_names.startswith('rim'):
+            _ = [setattr(prop, 'restitution', 0.8) for prop in props]
         return rigid_shape_props_asset
 
     def _process_dof_props(self, dof_props_asset, env_id):
@@ -610,8 +610,15 @@ class AirHockeyBase(LeggedRobot):
         reset_puck_pos = self.get_reset_puck_pos()
         self.dof_pos[env_ids, self.puck_pos_idx[0]] = reset_puck_pos[env_ids, 0]
         self.dof_pos[env_ids, self.puck_pos_idx[1]] = reset_puck_pos[env_ids, 1]
-        self.dof_vel[env_ids] = 0.
 
+        env_ids_int32 = env_ids.to(dtype=torch.int32)
+        self.gym.set_dof_state_tensor_indexed(self.sim,
+                                              gymtorch.unwrap_tensor(self.dof_state),
+                                              gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
+
+    def set_puck_vel(self, env_ids, vel):
+        self.dof_vel[env_ids, self.puck_vel_idx[0]] = vel[0]
+        self.dof_vel[env_ids, self.puck_vel_idx[1]] = vel[1]
         env_ids_int32 = env_ids.to(dtype=torch.int32)
         self.gym.set_dof_state_tensor_indexed(self.sim,
                                               gymtorch.unwrap_tensor(self.dof_state),
@@ -815,3 +822,10 @@ class AirHockeyBase(LeggedRobot):
 
     def get_reward_mid_low(self):
         return self.mid_rew_buf, self.low_rew_buf
+
+    def set_puck_torque(self, tx, ty, tz):
+        self.torques[:, self.puck_x_dof_idx] = tx
+        self.torques[:, self.puck_y_dof_idx] = ty
+        self.torques[:, self.puck_z_dof_idx] = tz
+
+        self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))

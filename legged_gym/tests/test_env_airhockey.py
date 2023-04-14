@@ -40,14 +40,14 @@ import torch
 
 from legged_gym.envs.air_hockey.agent_wrapper import AgentWrapper
 
-render_only = False
+render_only = True
 
 
 def test_env(args):
     args.task = "air_hockey_planar"
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 10)
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 3)
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
@@ -61,11 +61,23 @@ def test_env(args):
     agent = AgentWrapper(env_wp.base_env.env_info, env.num_envs)
 
     obs, _ = env.reset()
+    vel = [4,4]
 
+    i = 0
+    env_ids = torch.arange(3, device='cpu')
+    set_vel = True
     if render_only:
         while True:
-            env.render()
+            if set_vel:
+                env.set_puck_vel(env_ids, vel)
+                set_vel = False
             env.simulate_step()
+            env.render()
+            i += 1
+            if i > 1000:
+                env.reset_idx(env_ids)
+                i = 0
+                set_vel = True
     else:
         import time
         elapsed_time = 0

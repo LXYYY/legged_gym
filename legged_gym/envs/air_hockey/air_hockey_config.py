@@ -87,7 +87,7 @@ class AirHockeyCfg(LeggedRobotCfg):
 
     class viewer(LeggedRobotCfg.viewer):
         #     ref_env = 0
-        pos = [3, 0, 12]  # [m]
+        pos = [3, 0, 2]  # [m]
         lookat = [0, 0, 1]  # [m]
 
     class rewards:
