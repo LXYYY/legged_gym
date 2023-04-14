@@ -61,20 +61,20 @@ def test_env(args):
     agent = AgentWrapper(env_wp.base_env.env_info, env.num_envs)
 
     obs, _ = env.reset()
-    vel = [4,4]
+    vel = [4, 0]
 
     i = 0
     env_ids = torch.arange(3, device='cpu')
     set_vel = True
     if render_only:
         while True:
+            obs, _, rew, done, info = env.step(None)
             if set_vel:
                 env.set_puck_vel(env_ids, vel)
                 set_vel = False
-            env.simulate_step()
             env.render()
             i += 1
-            if i > 1000:
+            if i > 1500:
                 env.reset_idx(env_ids)
                 i = 0
                 set_vel = True

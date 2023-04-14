@@ -16,6 +16,9 @@ class AirHockeyCfg(LeggedRobotCfg):
         send_timeouts = True  # send time out information to the algorithm
         episode_length_s = 3  # episode length in seconds
 
+        goal_x = 2.484
+        goal_width = 0.25
+
         hierarchical = True
 
     class terrain(LeggedRobotCfg.terrain):

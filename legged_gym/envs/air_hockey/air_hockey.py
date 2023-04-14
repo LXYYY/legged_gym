@@ -62,6 +62,7 @@ class AirHockeyBase(LeggedRobot):
         return torch.rand(self.num_envs, 2, device=self.device, dtype=torch.float) * (
                 self.hit_range[:, 1] - self.hit_range[:, 0]) + self.hit_range[:, 0]
 
+
     def clone_env_info(self, base_env):
         self.env_info = base_env.env_info
         self.n_agents = base_env.n_agents
@@ -160,20 +161,21 @@ class AirHockeyBase(LeggedRobot):
             self.update_ctrl_dof_state()
             # check if the tf is ready, i.e. close to base_env
             if self.tf_ready:
-                if traj is not None:
-                    actions_step = np.array([next(t) for t in traj]).reshape(self.num_envs,
-                                                                             -1)  # num_envs x [q qd qdd] x num_joints
-                    actions_step_env_id = np.array([[actions_step[i], i] for i in range(actions_step.shape[0])])
-                    clipped_action = np.apply_along_axis(self.enforce_safety_limits, 1, actions_step_env_id)
-                    self.ctrl_actions = torch.from_numpy(clipped_action).to(torch.float32).to(self.device)
-                else:
-                    self.ctrl_actions = actions
+                if actions is not None:
+                    if traj is not None:
+                        actions_step = np.array([next(t) for t in traj]).reshape(self.num_envs,
+                                                                                 -1)  # num_envs x [q qd qdd] x num_joints
+                        actions_step_env_id = np.array([[actions_step[i], i] for i in range(actions_step.shape[0])])
+                        clipped_action = np.apply_along_axis(self.enforce_safety_limits, 1, actions_step_env_id)
+                        self.ctrl_actions = torch.from_numpy(clipped_action).to(torch.float32).to(self.device)
+                    else:
+                        self.ctrl_actions = actions
 
-                self.ctrl_torques = self._compute_torques(self.ctrl_actions).view(self.ctrl_torques.shape)
-                self.torques[:, self.ctrl_joints_idx[0]] = self.ctrl_torques[:, 0]
-                self.torques[:, self.ctrl_joints_idx[1]] = self.ctrl_torques[:, 1]
-                self.torques[:, self.ctrl_joints_idx[2]] = self.ctrl_torques[:, 2]
-                self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
+                    self.ctrl_torques = self._compute_torques(self.ctrl_actions).view(self.ctrl_torques.shape)
+                    self.torques[:, self.ctrl_joints_idx[0]] = self.ctrl_torques[:, 0]
+                    self.torques[:, self.ctrl_joints_idx[1]] = self.ctrl_torques[:, 1]
+                    self.torques[:, self.ctrl_joints_idx[2]] = self.ctrl_torques[:, 2]
+                    self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
                 # self.reset()
 
             self.simulate_step()
@@ -401,6 +403,7 @@ class AirHockeyBase(LeggedRobot):
         self.q_base_world, self.t_base_world = tf_inverse(self.q_world_base, self.t_world_base)
         self.q_base_actor, self.t_base_actor = tf_combine(self.q_base_world, self.t_base_world, self.q_world_actor,
                                                           self.t_world_actor)
+        self.q_actor_base, self.t_actor_base = tf_inverse(self.q_base_actor, self.t_base_actor)
 
     def _create_envs(self):
         """ Creates environments:
@@ -648,6 +651,14 @@ class AirHockeyBase(LeggedRobot):
         """ Check if environments need to be reset
         """
         super(AirHockeyBase, self).check_termination()
+
+        self.success_buf = self.puck_pos[:, 0] >= self.cfg.env.goal_x
+        self.success_buf &= torch.abs(self.puck_pos[:, 1]) <= self.cfg.env.goal_width / 2
+
+        self.reset_buf |= self.success_buf
+
+        if torch.sum(self.success_buf) > 0:
+            print(self.success_buf.detach().cpu().numpy())
 
         # check if ee is close to puck
         # self.reach_puck_buf = self.t_ee_puck_norm < self.cfg.rewards.min_puck_ee_dist
