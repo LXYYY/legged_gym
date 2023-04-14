@@ -267,6 +267,12 @@ class AirHockeyBase(LeggedRobot):
         dof_pos_subgoal = self.mid_actions[:, :3]
         self.low_dof_pos_diff = dof_pos_subgoal - self.joint_pos
 
+        ee_pos_subgoal = self.high_actions[:, :2]
+        self.mid_ee_pos_diff = ee_pos_subgoal - self.ee_pos[:, :2]
+
+        ee_vel_subgoal = self.high_actions[:, 2:4]
+        self.mid_ee_vel_diff = ee_vel_subgoal - self.ee_vel[:, :2]
+
     def _init_buffers(self):
         """ Initialize torch tensors which will contain simulation states and processed quantities
         """
@@ -671,8 +677,7 @@ class AirHockeyBase(LeggedRobot):
     def _reward_ee_pos_subgoal(self, high_action):
         """ Reward for end-effector position
         """
-        ee_pos_subgoal = high_action[:, :2]
-        return torch.norm(ee_pos_subgoal - self.ee_pos[:, :2], p=1, dim=1)
+        return torch.norm(self.mid_ee_pos_diff, p=1, dim=1)
 
     def _reward_ee_vel_subgoal(self, high_action):
         """ Reward for end-effector velocity
@@ -689,6 +694,12 @@ class AirHockeyBase(LeggedRobot):
 
     def _reward_low_termination(self):
         return self.low_done_buf
+
+    def _reward_mid_termination(self):
+        return self.mid_done_buf
+
+    def _reward_time(self):
+        return 1
 
     def _parse_cfg(self, cfg):
         super(AirHockeyBase, self)._parse_cfg(cfg)
@@ -791,7 +802,10 @@ class AirHockeyBase(LeggedRobot):
     def compute_done_mid_low(self):
         """ Compute done
         """
-        self.mid_done_buf = self._reward_ee_pos_subgoal(self.high_actions) < self.cfg.rewards.min_puck_ee_dist
+        mid_pos_done_buf = self.mid_ee_pos_diff < self.cfg.rewards.min_puck_ee_dist
+        mid_vel_done_buf = self.mid_ee_vel_diff < self.cfg.rewards.min_ee_vel_diff
+        self.mid_done_buf = mid_pos_done_buf & mid_vel_done_buf
+        self.mid_done_buf = self.mid_done_buf.all(dim=1)
         self.low_done_buf = self.low_dof_pos_diff < self.cfg.rewards.min_dof_pos_done
         self.low_done_buf = self.low_done_buf.all(dim=1)
         return self.mid_done_buf, self.low_done_buf

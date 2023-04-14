@@ -103,16 +103,19 @@ class AirHockeyCfg(LeggedRobotCfg):
             # dof_acc = -2.5e-7
 
         class mid_scales:
-            ee_pos_subgoal = -1
+            ee_pos_subgoal = -10
+            mid_termination = 10000
+            time = -0.1
             # ee_vel_subgoal = -1
 
         class low_scales:
-            dof_pos_subgoal = -60
-            low_termination = 1000
-            torques = -5e-6
-            dof_vel_subgoal = -5
-            dof_vel = -5e-3
-            dof_acc = -2.5e-7
+            dof_pos_subgoal = -50
+            time = -1
+            low_termination = 50000
+            torques = -5e-7
+            dof_vel_subgoal = -1
+            dof_vel = -5e-5
+            dof_acc = -1e-8
             dof_pos_limits = -1e4
             dof_vel_limits = -1e4
             torque_limits = -1e4
@@ -127,9 +130,10 @@ class AirHockeyCfg(LeggedRobotCfg):
 
         only_positive_rewards = False
         max_puck_vel = 0.4
-        min_puck_ee_dist = 0.01
+        min_puck_ee_dist = 0.05
         max_vel_trunc_dist = 0.5
         min_dof_pos_done = 0.002  # rad >~ 0.1 deg
+        min_ee_vel_diff = 0.05
 
         tracking_sigma = 0.25  # tracking reward = exp(-error^2/sigma)
         soft_dof_pos_limit = 1.  # percentage of urdf limits, values above this limit are penalized
@@ -143,7 +147,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
     num_actions = 6
 
     class runner(LeggedRobotCfgPPO.runner):
-        num_steps_per_env = 30
+        num_steps_per_env = 200
 
     class policy:
         class high(LeggedRobotCfgPPO.policy):
@@ -158,9 +162,9 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
 
         class mid(LeggedRobotCfgPPO.policy):
             num_actions = 6  # q, qd for 3 joints
-            num_obs = 10  # 6+high_actions q, qd for 3 joints
-            num_steps = 20
-            num_steps_per_env = 50
+            num_obs = 11  # 6+high_actions+low_done q, qd for 3 joints
+            num_steps = 5
+            num_steps_per_env = 200
             actor_hidden_dims = [128, 64, 32]
             critic_hidden_dims = [128, 64, 32]
             obs_idx = [6, 7, 8, 9, 10, 11]
@@ -169,7 +173,8 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
         class low(LeggedRobotCfgPPO.policy):
             num_actions = 6  # q, qd for 3 joints
             num_obs = 12  # 6+mid_actions q, qd for 3 joints
-            num_steps_per_env = 1000
+            num_steps_per_env = 200
+            num_steps = 20
             actor_hidden_dims = [64, 32]
             critic_hidden_dims = [64, 32]
             obs_idx = [6, 7, 8, 9, 10, 11]
