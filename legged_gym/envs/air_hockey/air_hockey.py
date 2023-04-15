@@ -49,6 +49,10 @@ class AirHockeyBase(LeggedRobot):
 
         self.episode_hit_puck_buf = torch.zeros_like(self.rew_buf, dtype=torch.bool)
 
+        self.low_timeout = torch.ones_like(self.rew_buf, dtype=torch.bool)
+        self.mid_timeout = torch.ones_like(self.rew_buf, dtype=torch.bool)
+        self.success_buf = torch.zeros_like(self.rew_buf, dtype=torch.bool)
+
     def clone_mujoco_controller(self, controller: PositionControlPlanar):
         # clone the mujoco controller and delete the original to reduce memory usage
         self.base_interp_traj = controller.interpolate_trajectory
@@ -140,7 +144,7 @@ class AirHockeyBase(LeggedRobot):
         return clipped_pos, clipped_vel
 
     # action shape: (num_envs, 2: [q, dq], num_joints=3)
-    def step(self, actions, high_actions=None, mid_actions=None):
+    def step(self, actions, high_actions=None, mid_actions=None, low_timeout=None, mid_timeout=None):
         if not self.tf_ready:
             self.reset()
             self._init_buffers()
@@ -159,6 +163,13 @@ class AirHockeyBase(LeggedRobot):
                 traj = np.apply_along_axis(self.interpolate_trajectory, 1, actions_env_id)
 
         self.render()
+
+        assert self.cfg.control.decimation == 1
+
+        if low_timeout is not None:
+            self.low_timeout = low_timeout
+        if mid_timeout is not None:
+            self.mid_timeout = mid_timeout
 
         for _ in range(self.cfg.control.decimation):
             self.update_ctrl_dof_state()
@@ -179,7 +190,6 @@ class AirHockeyBase(LeggedRobot):
                     self.torques[:, self.ctrl_joints_idx[1]] = self.ctrl_torques[:, 1]
                     self.torques[:, self.ctrl_joints_idx[2]] = self.ctrl_torques[:, 2]
                     self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
-                # self.reset()
 
             self.simulate_step()
 
@@ -250,6 +260,8 @@ class AirHockeyBase(LeggedRobot):
     def _post_physics_step_callback(self):
         dof_pos_subgoal = self.mid_actions[:, :3]
         self.low_dof_pos_diff = dof_pos_subgoal - self.joint_pos
+        dof_vel_subgoal = self.mid_actions[:, 3:6]
+        self.low_dof_vel_diff = dof_vel_subgoal - self.joint_vel
 
         ee_pos_subgoal = self.high_actions[:, :2]
         self.mid_ee_pos_diff = ee_pos_subgoal - self.ee_pos[:, :2]
@@ -602,6 +614,7 @@ class AirHockeyBase(LeggedRobot):
         self.episode_length_buf[env_ids] = 0
         self.reset_buf[env_ids] = 1
         self.episode_hit_puck_buf[env_ids] = 0
+        self.success_buf[env_ids] = 0
         # fill extras
         self.extras["episode"] = {}
         for key in self.episode_sums.keys():
@@ -671,10 +684,10 @@ class AirHockeyBase(LeggedRobot):
         """
         super(AirHockeyBase, self).check_termination()
 
-        self.success_buf = self.puck_pos[:, 0] >= self.cfg.env.goal_x
+        self.success_buf |= self.puck_pos[:, 0] >= self.cfg.env.goal_x
         self.success_buf &= torch.abs(self.puck_pos[:, 1]) <= self.cfg.env.goal_width / 2
 
-        self.reset_buf |= self.success_buf
+        # self.reset_buf |= self.success_buf
 
     def compute_reward(self):
         """ Compute rewards
@@ -726,16 +739,19 @@ class AirHockeyBase(LeggedRobot):
         return torch.norm(dof_vel_subgoal - self.joint_vel, p=2, dim=1)
 
     def _reward_low_termination(self):
-        return self.low_done_buf
+        return self.low_done_buf & self.low_timeout
 
     def _reward_mid_termination(self):
-        return self.mid_done_buf
+        return self.mid_done_buf & self.mid_timeout
 
     def _reward_high_termination(self):
         return self.success_buf
 
     def _reward_time(self):
         return 1
+
+    def _reward_time_utl_success(self):
+        return ~self.success_buf
 
     def _parse_cfg(self, cfg):
         super(AirHockeyBase, self)._parse_cfg(cfg)
@@ -843,11 +859,12 @@ class AirHockeyBase(LeggedRobot):
         self.mid_done_buf = mid_pos_done_buf & mid_vel_done_buf
         self.mid_done_buf = self.mid_done_buf.all(dim=1)
         self.low_done_buf = self.low_dof_pos_diff < self.cfg.rewards.min_dof_pos_done
+        self.low_done_buf &= self.low_dof_vel_diff < self.cfg.rewards.min_dof_vel_done
         self.low_done_buf = self.low_done_buf.all(dim=1)
         return self.mid_done_buf, self.low_done_buf
 
-    def get_done_mid_low(self):
-        return self.mid_done_buf, self.low_done_buf
+    def get_done_levels(self):
+        return self.success_buf, self.mid_done_buf, self.low_done_buf
 
     def get_reward_mid_low(self):
         return self.mid_rew_buf, self.low_rew_buf

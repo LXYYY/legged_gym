@@ -8,7 +8,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 5
+        num_envs = 1500
         num_observations = 13  # original 12 + step
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
@@ -96,10 +96,10 @@ class AirHockeyCfg(LeggedRobotCfg):
 
     class rewards:
         class scales:
-            time = -0.1
-            high_termination = 100000
-            ee_pos = -1
-            hit_puck = 1000
+            time_utl_success = -1
+            high_termination = 10000000
+            ee_pos = -0.1
+            hit_puck = 100000
             # ee_puck_contact = 1000
             # final_ee_vel = 10
             # jerk = -100
@@ -111,24 +111,21 @@ class AirHockeyCfg(LeggedRobotCfg):
             # dof_acc = -2.5e-7
 
         class mid_scales:
-            ee_pos_subgoal = -10
+            # ee_pos_subgoal = -10
             mid_termination = 10000
-            time = -0.1
-            # ee_vel_subgoal = -1
+            # ee_vel_subgoal = -10
 
         class low_scales:
-            dof_pos_subgoal = -50
-            time = -1
+            dof_pos_subgoal = -1
+            dof_vel_subgoal = -1
             low_termination = 50000
             torques = -5e-7
-            dof_vel_subgoal = -1
-            dof_vel = -5e-5
-            dof_acc = -1e-8
+            # dof_vel = -5e-5
+            # dof_acc = -1e-8
             dof_pos_limits = -1e4
             dof_vel_limits = -1e4
             torque_limits = -1e4
 
-        only_positive_rewards = True  # if true negative total rewards are clipped at zero (avoids early termination problems)
         tracking_sigma = 0.25  # tracking reward = exp(-error^2/sigma)
         soft_dof_pos_limit = 1.  # percentage of urdf limits, values above this limit are penalized
         soft_dof_vel_limit = 1.
@@ -140,7 +137,8 @@ class AirHockeyCfg(LeggedRobotCfg):
         max_puck_vel = 0.4
         min_puck_ee_dist = 0.05
         max_vel_trunc_dist = 0.5
-        min_dof_pos_done = 0.002  # rad >~ 0.1 deg
+        min_dof_pos_done = 0.02  # rad >~ 0.1 deg
+        min_dof_vel_done = 0.02  # rad >~ 0.1 deg
         min_ee_vel_diff = 0.05
 
         tracking_sigma = 0.25  # tracking reward = exp(-error^2/sigma)
@@ -161,29 +159,29 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
         class high(LeggedRobotCfgPPO.policy):
             num_actions = 4  # x,y,vel_x,vel_y
             num_obs = 14  # num_obs+mid_done
-            num_steps = 1
+            num_steps = 3  # 50 high actions per episode
             num_steps_per_env = 200
-            actor_hidden_dims = [64, 64]
-            critic_hidden_dims = [64, 64]
+            actor_hidden_dims = [128, 64]
+            critic_hidden_dims = [128, 64]
             obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
 
         class mid(LeggedRobotCfgPPO.policy):
             num_actions = 6  # q, qd for 3 joints
             num_obs = 11  # 6+high_actions+low_done q, qd for 3 joints
-            num_steps = 5
+            num_steps = 5  # 1 mid action per high action
             num_steps_per_env = 200
             actor_hidden_dims = [128, 64]
             critic_hidden_dims = [128, 64]
             obs_idx = [6, 7, 8, 9, 10, 11]
-            init_noise_std = 0.05
+            init_noise_std = 1
 
         class low(LeggedRobotCfgPPO.policy):
             num_actions = 6  # q, qd for 3 joints
             num_obs = 12  # 6+mid_actions q, qd for 3 joints
-            num_steps_per_env = 200
-            num_steps = 20
+            num_steps_per_env = 3000
+            num_steps = 20  # 20 low actions per mid action
             actor_hidden_dims = [64, 32]
             critic_hidden_dims = [64, 32]
             obs_idx = [6, 7, 8, 9, 10, 11]
-            init_noise_std = 0.5
+            init_noise_std = 1
