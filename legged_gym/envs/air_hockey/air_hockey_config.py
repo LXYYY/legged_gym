@@ -8,13 +8,13 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 1500
+        num_envs = 1000
         num_observations = 13  # original 12 + step
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
         env_spacing = 3.  # not used with heightfields/trimeshes
         send_timeouts = True  # send time out information to the algorithm
-        episode_length_s = 3  # episode length in seconds
+        episode_length_s = 5  # episode length in seconds
 
         goal_x = 2.484
         goal_width = 0.25
@@ -98,7 +98,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         class scales:
             time_utl_success = -1
             high_termination = 10000000
-            ee_pos = -0.1
+            ee_pos = -10
             hit_puck = 100000
             # ee_puck_contact = 1000
             # final_ee_vel = 10
@@ -111,13 +111,12 @@ class AirHockeyCfg(LeggedRobotCfg):
             # dof_acc = -2.5e-7
 
         class mid_scales:
-            # ee_pos_subgoal = -10
+            ee_pos_subgoal = -10
             mid_termination = 10000
-            # ee_vel_subgoal = -10
+            ee_vel_subgoal = -10
 
         class low_scales:
             dof_pos_subgoal = -1
-            dof_vel_subgoal = -1
             low_termination = 50000
             torques = -5e-7
             # dof_vel = -5e-5
@@ -137,8 +136,8 @@ class AirHockeyCfg(LeggedRobotCfg):
         max_puck_vel = 0.4
         min_puck_ee_dist = 0.05
         max_vel_trunc_dist = 0.5
-        min_dof_pos_done = 0.02  # rad >~ 0.1 deg
-        min_dof_vel_done = 0.02  # rad >~ 0.1 deg
+        min_dof_pos_done = 0.002  # rad >~ 0.1 deg
+        min_dof_vel_done = 0.002  # rad >~ 0.1 deg
         min_ee_vel_diff = 0.05
 
         tracking_sigma = 0.25  # tracking reward = exp(-error^2/sigma)
@@ -155,33 +154,37 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
     class runner(LeggedRobotCfgPPO.runner):
         num_steps_per_env = 200
 
+    class algorithm(LeggedRobotCfgPPO.algorithm):
+        use_clipped_value_loss = False
+
     class policy:
         class high(LeggedRobotCfgPPO.policy):
             num_actions = 4  # x,y,vel_x,vel_y
-            num_obs = 14  # num_obs+mid_done
-            num_steps = 3  # 50 high actions per episode
-            num_steps_per_env = 200
-            actor_hidden_dims = [128, 64]
-            critic_hidden_dims = [128, 64]
+            num_obs = 15  # num_obs+mid_done
+            num_steps = 2  # 50 high actions per episode
+            num_steps_per_env = 2
+            actor_hidden_dims = [256, 128]
+            critic_hidden_dims = [256, 128]
             obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+            init_noise_std = 0.2
 
 
         class mid(LeggedRobotCfgPPO.policy):
-            num_actions = 6  # q, qd for 3 joints
-            num_obs = 11  # 6+high_actions+low_done q, qd for 3 joints
-            num_steps = 5  # 1 mid action per high action
-            num_steps_per_env = 200
-            actor_hidden_dims = [128, 64]
-            critic_hidden_dims = [128, 64]
+            num_actions = 3  # q, qd for 3 joints
+            num_obs = 12  # 6+high_actions+low_done q, qd for 3 joints
+            num_steps = 10  # 1 mid action per high action
+            num_steps_per_env = 40
+            actor_hidden_dims = [256, 128]
+            critic_hidden_dims = [256, 128]
             obs_idx = [6, 7, 8, 9, 10, 11]
-            init_noise_std = 1
+            init_noise_std = 0.5
 
         class low(LeggedRobotCfgPPO.policy):
             num_actions = 6  # q, qd for 3 joints
-            num_obs = 12  # 6+mid_actions q, qd for 3 joints
-            num_steps_per_env = 3000
+            num_obs = 10  # 6+mid_actions q, qd for 3 joints
+            num_steps_per_env = 400
             num_steps = 20  # 20 low actions per mid action
-            actor_hidden_dims = [64, 32]
-            critic_hidden_dims = [64, 32]
+            actor_hidden_dims = [128, 64]
+            critic_hidden_dims = [128, 64]
             obs_idx = [6, 7, 8, 9, 10, 11]
-            init_noise_std = 1
+            init_noise_std = 0.5

@@ -260,8 +260,8 @@ class AirHockeyBase(LeggedRobot):
     def _post_physics_step_callback(self):
         dof_pos_subgoal = self.mid_actions[:, :3]
         self.low_dof_pos_diff = dof_pos_subgoal - self.joint_pos
-        dof_vel_subgoal = self.mid_actions[:, 3:6]
-        self.low_dof_vel_diff = dof_vel_subgoal - self.joint_vel
+        # dof_vel_subgoal = self.mid_actions[:, 3:6]
+        # self.low_dof_vel_diff = dof_vel_subgoal - self.joint_vel
 
         ee_pos_subgoal = self.high_actions[:, :2]
         self.mid_ee_pos_diff = ee_pos_subgoal - self.ee_pos[:, :2]
@@ -707,7 +707,7 @@ class AirHockeyBase(LeggedRobot):
     def _reward_hit_puck(self):
         """ Reward for hitting the puck
         """
-        return self.hit_puck_buf
+        return self.episode_hit_puck_buf
 
     def _reward_final_ee_vel(self):
         """ Reward for end-effector velocity
@@ -733,10 +733,6 @@ class AirHockeyBase(LeggedRobot):
 
     def _reward_dof_pos_subgoal(self, mid_action):
         return torch.norm(self.low_dof_pos_diff, p=1, dim=1)
-
-    def _reward_dof_vel_subgoal(self, mid_action):
-        dof_vel_subgoal = mid_action[:, 3:]
-        return torch.norm(dof_vel_subgoal - self.joint_vel, p=2, dim=1)
 
     def _reward_low_termination(self):
         return self.low_done_buf & self.low_timeout
@@ -815,7 +811,7 @@ class AirHockeyBase(LeggedRobot):
     def map_high_actions(self, actions):
         """ Map actions to the environment
         """
-        actions_x = actions[:, 0].unsqueeze(1)  # 0 - 1
+        actions_x = actions[:, 0].unsqueeze(1) + 0.5  # 0 - 1
         actions_y = actions[:, 1].unsqueeze(1) - 0.5  # -0.5 - 0.5
         actions_vxy = torch.nn.functional.normalize(actions[:, 2:], p=2, dim=1)
         # vstack
@@ -859,7 +855,7 @@ class AirHockeyBase(LeggedRobot):
         self.mid_done_buf = mid_pos_done_buf & mid_vel_done_buf
         self.mid_done_buf = self.mid_done_buf.all(dim=1)
         self.low_done_buf = self.low_dof_pos_diff < self.cfg.rewards.min_dof_pos_done
-        self.low_done_buf &= self.low_dof_vel_diff < self.cfg.rewards.min_dof_vel_done
+        # self.low_done_buf &= self.low_dof_vel_diff < self.cfg.rewards.min_dof_vel_done
         self.low_done_buf = self.low_done_buf.all(dim=1)
         return self.mid_done_buf, self.low_done_buf
 
