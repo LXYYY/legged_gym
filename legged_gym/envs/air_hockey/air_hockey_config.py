@@ -8,8 +8,8 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 1000
-        num_observations = 12
+        num_envs = 5
+        num_observations = 13  # original 12 + step
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
         env_spacing = 3.  # not used with heightfields/trimeshes
@@ -18,6 +18,7 @@ class AirHockeyCfg(LeggedRobotCfg):
 
         goal_x = 2.484
         goal_width = 0.25
+        contact_force_threshold = 0.1
 
         hierarchical = True
 
@@ -36,7 +37,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         self_collisions = 0  # 1 to disable, 0 to enable...bitwise filter
         disable_gravity = False
         solref = [0.02, 0.3]
-        penalize_contacts_on = ['planar_robot_1/body_ee']
+        # penalize_contacts_on = ['planar_robot_1/body_ee']
 
     class sim(LeggedRobotCfg.sim):
         dt = 0.001
@@ -95,7 +96,11 @@ class AirHockeyCfg(LeggedRobotCfg):
 
     class rewards:
         class scales:
-            ee_pos = -100
+            time = -0.1
+            high_termination = 100000
+            ee_pos = -1
+            hit_puck = 1000
+            # ee_puck_contact = 1000
             # final_ee_vel = 10
             # jerk = -100
             # collision = -1e4
@@ -155,12 +160,12 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
     class policy:
         class high(LeggedRobotCfgPPO.policy):
             num_actions = 4  # x,y,vel_x,vel_y
-            num_obs = 12  # num_obs+t
+            num_obs = 14  # num_obs+mid_done
             num_steps = 1
-            num_steps_per_env = 10
+            num_steps_per_env = 200
             actor_hidden_dims = [64, 64]
             critic_hidden_dims = [64, 64]
-            obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+            obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
 
         class mid(LeggedRobotCfgPPO.policy):
@@ -168,8 +173,8 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             num_obs = 11  # 6+high_actions+low_done q, qd for 3 joints
             num_steps = 5
             num_steps_per_env = 200
-            actor_hidden_dims = [128, 64, 32]
-            critic_hidden_dims = [128, 64, 32]
+            actor_hidden_dims = [128, 64]
+            critic_hidden_dims = [128, 64]
             obs_idx = [6, 7, 8, 9, 10, 11]
             init_noise_std = 0.05
 

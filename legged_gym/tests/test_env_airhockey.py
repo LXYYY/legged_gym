@@ -61,7 +61,7 @@ def test_env(args):
     agent = AgentWrapper(env_wp.base_env.env_info, env.num_envs)
 
     obs, _ = env.reset()
-    vel = [4, 0]
+    vel = [-4, 0]
 
     i = 0
     env_ids = torch.arange(3, device='cpu')
