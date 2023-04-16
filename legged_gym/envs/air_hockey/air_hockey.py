@@ -687,7 +687,7 @@ class AirHockeyBase(LeggedRobot):
         self.success_buf |= self.puck_pos[:, 0] >= self.cfg.env.goal_x
         self.success_buf &= torch.abs(self.puck_pos[:, 1]) <= self.cfg.env.goal_width / 2
 
-        # self.reset_buf |= self.success_buf
+        self.reset_buf |= self.success_buf
 
     def compute_reward(self):
         """ Compute rewards

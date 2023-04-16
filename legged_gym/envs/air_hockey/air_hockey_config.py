@@ -98,7 +98,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         class scales:
             time_utl_success = -1
             high_termination = 10000000
-            ee_pos = -10
+            ee_pos = -100
             hit_puck = 100000
             # ee_puck_contact = 1000
             # final_ee_vel = 10
@@ -152,7 +152,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
     num_actions = 6
 
     class runner(LeggedRobotCfgPPO.runner):
-        num_steps_per_env = 200
+        num_steps_per_env = 1000
 
     class algorithm(LeggedRobotCfgPPO.algorithm):
         use_clipped_value_loss = False
@@ -161,30 +161,30 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
         class high(LeggedRobotCfgPPO.policy):
             num_actions = 4  # x,y,vel_x,vel_y
             num_obs = 15  # num_obs+mid_done
-            num_steps = 2  # 50 high actions per episode
-            num_steps_per_env = 2
+            num_steps = 100  # 50 high actions per episode
+            num_steps_per_env = 250
             actor_hidden_dims = [256, 128]
             critic_hidden_dims = [256, 128]
             obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-            init_noise_std = 0.2
+            # init_noise_std = 0.2
 
 
         class mid(LeggedRobotCfgPPO.policy):
             num_actions = 3  # q, qd for 3 joints
             num_obs = 12  # 6+high_actions+low_done q, qd for 3 joints
-            num_steps = 10  # 1 mid action per high action
-            num_steps_per_env = 40
+            num_steps = 20  # 1 mid action per high action
+            num_steps_per_env = 200
             actor_hidden_dims = [256, 128]
             critic_hidden_dims = [256, 128]
             obs_idx = [6, 7, 8, 9, 10, 11]
-            init_noise_std = 0.5
+            # init_noise_std = 0.5
 
         class low(LeggedRobotCfgPPO.policy):
             num_actions = 6  # q, qd for 3 joints
             num_obs = 10  # 6+mid_actions q, qd for 3 joints
-            num_steps_per_env = 400
-            num_steps = 20  # 20 low actions per mid action
+            num_steps_per_env = 20
+            num_steps = 1  # 20 low actions per mid action
             actor_hidden_dims = [128, 64]
             critic_hidden_dims = [128, 64]
             obs_idx = [6, 7, 8, 9, 10, 11]
-            init_noise_std = 0.5
+            # init_noise_std = 0.5
