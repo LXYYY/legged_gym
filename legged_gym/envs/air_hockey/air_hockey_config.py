@@ -97,9 +97,9 @@ class AirHockeyCfg(LeggedRobotCfg):
     class rewards:
         class scales:
             time_utl_success = -1
-            high_termination = 10000000
-            ee_pos = -100
-            hit_puck = 100000
+            high_termination = 1000000
+            ee_pos = -1
+            hit_puck = 100
             # ee_puck_contact = 1000
             # final_ee_vel = 10
             # jerk = -100
@@ -112,12 +112,12 @@ class AirHockeyCfg(LeggedRobotCfg):
 
         class mid_scales:
             ee_pos_subgoal = -10
-            mid_termination = 10000
-            ee_vel_subgoal = -10
+            mid_termination = 100000
+            ee_vel_subgoal = -0.5
 
         class low_scales:
             dof_pos_subgoal = -1
-            low_termination = 50000
+            low_termination = 500000
             torques = -5e-7
             # dof_vel = -5e-5
             # dof_acc = -1e-8
@@ -166,7 +166,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             actor_hidden_dims = [256, 128]
             critic_hidden_dims = [256, 128]
             obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-            # init_noise_std = 0.2
+            init_noise_std = 0.5
 
 
         class mid(LeggedRobotCfgPPO.policy):
@@ -177,7 +177,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             actor_hidden_dims = [256, 128]
             critic_hidden_dims = [256, 128]
             obs_idx = [6, 7, 8, 9, 10, 11]
-            # init_noise_std = 0.5
+            init_noise_std = 0.5
 
         class low(LeggedRobotCfgPPO.policy):
             num_actions = 6  # q, qd for 3 joints
@@ -187,4 +187,4 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             actor_hidden_dims = [128, 64]
             critic_hidden_dims = [128, 64]
             obs_idx = [6, 7, 8, 9, 10, 11]
-            # init_noise_std = 0.5
+            init_noise_std = 0.5
