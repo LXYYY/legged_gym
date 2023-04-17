@@ -197,7 +197,7 @@ class LeggedRobotCfg(BaseConfig):
             max_depenetration_velocity = 1.0
             max_gpu_contact_pairs = 2**23 #2**24 -> needed for 8000 envs and more
             default_buffer_size_multiplier = 5
-            contact_collection = 2 # 0: never, 1: last sub-step, 2: all sub-steps (default=2)
+            contact_collection = 1 # 0: never, 1: last sub-step, 2: all sub-steps (default=2)
 
 class LeggedRobotCfgPPO(BaseConfig):
     seed = 1
@@ -224,7 +224,7 @@ class LeggedRobotCfgPPO(BaseConfig):
         schedule = 'adaptive' # could be adaptive, fixed
         gamma = 0.99
         lam = 0.95
-        desired_kl = 0.01
+        desired_kl = 0.05
         max_grad_norm = 1.
 
     class runner:
