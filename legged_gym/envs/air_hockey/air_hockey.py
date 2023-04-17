@@ -299,8 +299,9 @@ class AirHockeyBase(LeggedRobot):
         self.hit_puck_buf = hit_puck_buf & ee_hit_buf
         self.episode_hit_puck_buf |= self.hit_puck_buf
 
+
         self.obs_buf = torch.cat(
-            (self.puck_pos, self.puck_vel, self.joint_pos, self.joint_vel, self.time_left_buf.unsqueeze(1)),
+            (self.puck_pos, self.puck_vel, self.joint_pos, self.joint_vel, self.episode_length_buf.unsqueeze(1)),
             dim=1)
 
     def _init_buffers(self):
@@ -698,7 +699,7 @@ class AirHockeyBase(LeggedRobot):
         self.success_buf |= self.puck_pos[:, 0] >= self.cfg.env.goal_x
         self.success_buf &= torch.abs(self.puck_pos[:, 1]) <= self.cfg.env.goal_width / 2
 
-        self.reset_buf |= self.success_buf
+        # self.reset_buf |= self.success_buf
 
     def compute_reward(self):
         """ Compute rewards
