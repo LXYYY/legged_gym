@@ -8,13 +8,13 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 3
+        num_envs = 1000
         num_observations = 13  # original 12 + step
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
         env_spacing = 3.  # not used with heightfields/trimeshes
         send_timeouts = False  # send time out information to the algorithm
-        episode_length_s = 5  # episode length in seconds
+        episode_length_s = 2  # episode length in seconds
 
         goal_x = 2.484
         goal_width = 0.25
@@ -99,7 +99,8 @@ class AirHockeyCfg(LeggedRobotCfg):
             time_utl_success = -1
             high_termination = 1000000
             ee_pos = -1
-            hit_puck = 100
+            hit_puck = 1
+            puck_x = 1
             # ee_puck_contact = 1000
             # final_ee_vel = 10
             # jerk = -100
@@ -111,9 +112,10 @@ class AirHockeyCfg(LeggedRobotCfg):
             # dof_acc = -2.5e-7
 
         class mid_scales:
-            ee_pos_subgoal = -10
+            ee_pos_subgoal = -1
             mid_termination = 100000
-            # ee_vel_subgoal = -0.5
+            ee_vel_subgoal = -0.5
+            ee_outside_table = -100
 
         class low_scales:
             dof_pos_subgoal = -1
@@ -124,6 +126,7 @@ class AirHockeyCfg(LeggedRobotCfg):
             dof_pos_limits = -1e4
             dof_vel_limits = -1e4
             torque_limits = -1e4
+            ee_outside_table = -100
 
         tracking_sigma = 0.25  # tracking reward = exp(-error^2/sigma)
         soft_dof_pos_limit = 1.  # percentage of urdf limits, values above this limit are penalized

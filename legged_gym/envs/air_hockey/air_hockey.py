@@ -839,6 +839,8 @@ class AirHockeyBase(LeggedRobot):
     def map_high_actions(self, actions):
         """ Map actions to the environment
         """
+        # clip actions to [-1, 1]
+        actions = torch.clamp(actions, -1, 1)
         actions[:, 0] = actions[:, 0] * 0.5 + 1
         actions[:, 1] = actions[:, 1] * 0.5
         actions[:, 2] *= 1.5
@@ -846,6 +848,8 @@ class AirHockeyBase(LeggedRobot):
         return actions
 
     def map_mid_actions(self, actions):
+        # clip actions to [0, 1]
+        actions = torch.clamp(actions, 0, 1)
         # map q from [0, 1] to dof_pos_limit
         actions[:, :3] = actions[:, :3] * (
                 self.dof_pos_limits[self.ctrl_joints_idx, 1] - self.dof_pos_limits[self.ctrl_joints_idx, 0]) + \
@@ -853,12 +857,12 @@ class AirHockeyBase(LeggedRobot):
         return actions
 
     def map_low_actions(self, actions):
+        # clip actions to [0, 1]
+        actions = torch.clamp(actions, 0, 1)
         # map q from [0, 1] to dof_pos_limit
         actions[:, :3] = actions[:, :3] * (
                 self.dof_pos_limits[self.ctrl_joints_idx, 1] - self.dof_pos_limits[self.ctrl_joints_idx, 0]) + \
                          self.dof_pos_limits[self.ctrl_joints_idx, 0]
-        actions[:, 3:] = actions[:, 3:] * self.dof_vel_limits[self.ctrl_joints_idx] * 2 - self.dof_vel_limits[
-            self.ctrl_joints_idx]
         return actions
 
     def _compute_reward_mid_low(self, high_action, mid_action):
@@ -915,3 +919,9 @@ class AirHockeyBase(LeggedRobot):
         self.torques[:, self.puck_z_dof_idx] = tz
 
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
+
+    def _reward_puck_x(self):
+        return self.puck_pos[:, 0] * self.episode_hit_puck_buf
+
+    def _reward_ee_outside_table(self):
+        return self.ee_pos[:, 0] < 0.6
