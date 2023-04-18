@@ -8,7 +8,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 1000
+        num_envs = 3
         num_observations = 13  # original 12 + step
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
@@ -160,9 +160,9 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
     class policy:
         class high(LeggedRobotCfgPPO.policy):
             num_actions = 4  # x,y,vel_x,vel_y
-            num_obs = 14  # num_obs+mid_done
+            num_obs = 18  # num_obs+mid_done
             num_steps = 100  # 50 high actions per episode
-            num_steps_per_env = 250
+            num_steps_per_env = 500
             actor_hidden_dims = [256, 128]
             critic_hidden_dims = [256, 128]
             obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
@@ -171,18 +171,18 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
 
         class mid(LeggedRobotCfgPPO.policy):
             num_actions = 3  # q, qd for 3 joints
-            num_obs = 11  # 6+high_actions+low_done q, qd for 3 joints
-            num_steps = 20  # 1 mid action per high action
-            num_steps_per_env = 200
+            num_obs = 14  # 6+high_actions+low_done q, qd for 3 joints
+            num_steps = 20  # 5 mid action per high action
+            num_steps_per_env = 600
             actor_hidden_dims = [256, 128]
             critic_hidden_dims = [256, 128]
             obs_idx = [6, 7, 8, 9, 10, 11]
             # init_noise_std = 0.5
 
         class low(LeggedRobotCfgPPO.policy):
-            num_actions = 6  # q, qd for 3 joints
-            num_obs = 9  # 6+mid_actions q, qd for 3 joints
-            num_steps_per_env = 20
+            num_actions = 3  # q, qd for 3 joints
+            num_obs = 12  # 6+mid_actions q, qd for 3 joints
+            num_steps_per_env = 60
             num_steps = 1  # 20 low actions per mid action
             actor_hidden_dims = [128, 64]
             critic_hidden_dims = [128, 64]

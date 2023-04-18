@@ -183,7 +183,9 @@ class AirHockeyBase(LeggedRobot):
                         clipped_action = np.apply_along_axis(self.enforce_safety_limits, 1, actions_step_env_id)
                         self.ctrl_actions = torch.from_numpy(clipped_action).to(torch.float32).to(self.device)
                     else:
-                        self.ctrl_actions = actions
+                        # self.ctrl_actions = actions
+                        clip_actions = self.cfg.normalization.clip_actions
+                        self.ctrl_actions = torch.clip(actions, -clip_actions, clip_actions).to(self.device)
 
                     self.ctrl_torques = self._compute_torques(self.ctrl_actions).view(self.ctrl_torques.shape)
                     self.torques[:, self.ctrl_joints_idx[0]] = self.ctrl_torques[:, 0]
@@ -198,6 +200,12 @@ class AirHockeyBase(LeggedRobot):
 
         self.post_physics_step()
 
+        # return clipped obs, clipped states (None), rewards, dones and infos
+        clip_obs = self.cfg.normalization.clip_observations
+        self.obs_buf[..., :-1] = torch.clip(self.obs_buf[..., :-1], -clip_obs, clip_obs)
+        # if self.privileged_obs_buf is not None:
+        #     self.privileged_obs_buf = torch.clip(self.privileged_obs_buf, -clip_obs, clip_obs)
+
         return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras
 
     def simulate_step(self):
@@ -207,7 +215,7 @@ class AirHockeyBase(LeggedRobot):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
 
-    def _compute_torques(self, clipped_actions: torch.Tensor):
+    def _compute_torques(self, actions: torch.Tensor):
         """ Compute torques from actions.
             Actions can be interpreted as position or velocity targets given to a PD controller, or directly as scaled torques.
             [NOTE]: torques must have the same dimension as the number of DOFs, even if some DOFs are not actuated.
@@ -219,15 +227,20 @@ class AirHockeyBase(LeggedRobot):
             [torch.Tensor]: Torques sent to the simulation
         """
         # pd controller
-        clipped_pos = clipped_actions.view(self.num_envs, 2, self._num_env_joints)[:, 0, :]
-        clipped_vel = clipped_actions.view(self.num_envs, 2, self._num_env_joints)[:, 1, :]
-
-        error = clipped_pos - self.ctrl_dof_pos
-
-        i_error = 0  # Ki=0 anyways
-        torques = self.ctrl_p_gains * error + self.ctrl_d_gains * (clipped_vel - self.ctrl_dof_vel) + i_error
-
+        actions_scaled = actions * self.cfg.control.action_scale
+        control_type = self.cfg.control.control_type
+        if control_type == "P":
+            torques = self.ctrl_p_gains * (
+                    actions_scaled + self.ctrl_default_dof_pos - self.ctrl_dof_pos) - self.ctrl_d_gains * self.ctrl_dof_vel
+        elif control_type == "V":
+            torques = self.ctrl_p_gains * (actions_scaled - self.dof_vel) - self.d_gains * (
+                    self.dof_vel - self.last_dof_vel) / self.sim_params.dt
+        elif control_type == "T":
+            torques = actions_scaled
+        else:
+            raise NameError(f"Unknown controller type: {control_type}")
         return torch.clip(torques, -self.ctrl_torque_limits, self.ctrl_torque_limits)
+
 
     def post_physics_step(self):
         """ check terminations, compute observations and rewards
@@ -371,6 +384,7 @@ class AirHockeyBase(LeggedRobot):
                 if self.cfg.control.control_type in ["P", "V"]:
                     print(f"PD gain of joint {name} were not defined, setting them to zero")
         self.default_dof_pos = self.default_dof_pos.unsqueeze(0)
+        self.ctrl_default_dof_pos = self.default_dof_pos[:, self.ctrl_joints_idx]
 
         self.ctrl_torques = torch.zeros(self.num_envs, len(self.ctrl_joints_idx), dtype=torch.float, device=self.device,
                                         requires_grad=False)
@@ -618,7 +632,7 @@ class AirHockeyBase(LeggedRobot):
         self._reset_dofs(env_ids)
         self._reset_root_states(env_ids)
 
-        self._resample_commands(env_ids)
+        # self._resample_commands(env_ids)
 
         # reset buffers
         self.last_actions[env_ids] = 0.
@@ -696,8 +710,10 @@ class AirHockeyBase(LeggedRobot):
         """
         super(AirHockeyBase, self).check_termination()
 
-        self.success_buf |= self.puck_pos[:, 0] >= self.cfg.env.goal_x
-        self.success_buf &= torch.abs(self.puck_pos[:, 1]) <= self.cfg.env.goal_width / 2
+        success_buf = self.puck_pos[:, 0] >= self.cfg.env.goal_x
+        success_buf &= torch.abs(self.puck_pos[:, 1]) <= self.cfg.env.goal_width / 2
+
+        self.success_buf |= success_buf
 
         # self.reset_buf |= self.success_buf
 
