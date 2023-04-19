@@ -849,24 +849,13 @@ class AirHockeyBase(LeggedRobot):
         return actions
 
     def map_mid_actions(self, actions):
-        # clip actions to [0, 1]
-        actions = torch.clamp(actions, 0, 1)
-        actions = actions * 20 - 10
-        # map q from [0, 1] to dof_pos_limit
-        # actions[:, :3] = actions[:, :3] * (
-        #         self.dof_pos_limits[self.ctrl_joints_idx, 1] - self.dof_pos_limits[self.ctrl_joints_idx, 0]) + \
-        #                  self.dof_pos_limits[self.ctrl_joints_idx, 0]
+        # clip actions to -100, 100
+        actions = torch.clamp(actions, -100, 100)
         return actions
 
     def map_low_actions(self, actions):
-        # clip actions to [0, 1]
-        actions = torch.clamp(actions, 0, 1)
-        # map to -10 to 10
-        actions = actions * 20 - 10
-        # map q from [0, 1] to dof_pos_limit
-        # actions[:, :3] = actions[:, :3] * (
-        #         self.dof_pos_limits[self.ctrl_joints_idx, 1] - self.dof_pos_limits[self.ctrl_joints_idx, 0]) + \
-        #                  self.dof_pos_limits[self.ctrl_joints_idx, 0]
+        # clip actions to -100, 100
+        actions = torch.clamp(actions, -100, 100)
         return actions
 
     def _compute_reward_mid_low(self, high_action, mid_action):
