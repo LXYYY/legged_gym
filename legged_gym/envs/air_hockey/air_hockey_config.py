@@ -96,11 +96,11 @@ class AirHockeyCfg(LeggedRobotCfg):
 
     class rewards:
         class scales:
-            time_utl_success = -1
-            high_termination = 1000000
-            ee_pos = -1
-            hit_puck = 1
-            puck_x = 1
+            # time_utl_success = -1
+            high_termination = 10000
+            # ee_pos = -1
+            # hit_puck = 1
+            # puck_x = 1
             # ee_puck_contact = 1000
             # final_ee_vel = 10
             # jerk = -100
@@ -113,13 +113,13 @@ class AirHockeyCfg(LeggedRobotCfg):
 
         class mid_scales:
             ee_pos_subgoal = -1
-            mid_termination = 100000
+            mid_termination = 1000
             ee_vel_subgoal = -0.5
             ee_outside_table = -100
 
         class low_scales:
             dof_pos_subgoal = -1
-            low_termination = 5000
+            low_termination = 1000
             torques = -5e-7
             # dof_vel = -5e-5
             # dof_acc = -1e-8
