@@ -1,18 +1,14 @@
 import os
 
-import numpy as np
 import torch
-import logging
-from air_hockey_challenge.environments.planar.base import AirHockeyBase as MCJBase
 from air_hockey_challenge.environments.position_control_wrapper import PositionControlPlanar
 from isaacgym import gymtorch, gymapi
 from isaacgym.torch_utils import *
+
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.legged_robot import LeggedRobot
 from legged_gym.utils.helpers import class_to_dict
-
 from .air_hockey_config import AirHockeyCfg
-from .transform import T_mat_from_body_state
 
 
 class AirHockeyBase(LeggedRobot):
@@ -313,10 +309,49 @@ class AirHockeyBase(LeggedRobot):
         self.hit_puck_buf = hit_puck_buf & ee_hit_buf
         self.episode_hit_puck_buf |= self.hit_puck_buf
 
+        norm_puck_pos = self.puck_pos.clone()
+        min_x = 1.5 + self.hit_range[0, 0]
+        max_x = 1.5 + self.hit_range[0, 1]
+        min_y = self.hit_range[1, 0]
+        max_y = self.hit_range[1, 1]
+        norm_puck_pos[..., 0] = (self.puck_pos[..., 0] - min_x) / (max_x - min_x)
+        norm_puck_pos[..., 1] = (self.puck_pos[..., 1] - min_y) / (max_y - min_y)
+
+        # map puck_vel to -1 to 1
+        norm_puck_vel = (self.puck_vel - (-1)) / (1 - (-1))
+
+        # normalize to -3.14 to 3.14
+        joint_pos = (self.joint_pos - (-3.14)) / (3.14 - (-3.14))
+
+        # normalize joint_vel to -20 to 20
+        joint_vel = (self.joint_vel - (-20)) / (20 - (-20))
 
         self.obs_buf = torch.cat(
-            (self.puck_pos, self.puck_vel, self.joint_pos, self.joint_vel, self.episode_length_buf.unsqueeze(1)),
-            dim=1)
+            (norm_puck_pos, norm_puck_vel, joint_pos, joint_vel, self.episode_length_buf.unsqueeze(1)), dim=1)
+
+        if self.add_noise:
+            self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
+
+    def _get_noise_scale_vec(self, cfg):
+        """ Sets a vector used to scale the noise added to the observations.
+            [NOTE]: Must be adapted when changing the observations structure
+
+        Args:
+            cfg (Dict): Environment config file
+
+        Returns:
+            [torch.Tensor]: Vector of scales used to multiply a uniform distribution in [-1, 1]
+        """
+        noise_vec = torch.zeros_like(self.obs_buf[0])
+        self.add_noise = self.cfg.noise.add_noise
+        noise_scales = self.cfg.noise.noise_scales
+        noise_level = self.cfg.noise.noise_level
+        noise_vec[:3] = noise_scales.puck_pos * noise_level
+        noise_vec[3:6] = noise_scales.puck_vel * noise_level
+        noise_vec[6:9] = noise_scales.joint_pos * noise_level
+        noise_vec[9:12] = noise_scales.joint_vel * noise_level
+        noise_vec[12] = noise_scales.episode_length * noise_level
+        return noise_vec
 
     def _init_buffers(self):
         """ Initialize torch tensors which will contain simulation states and processed quantities
@@ -668,10 +703,17 @@ class AirHockeyBase(LeggedRobot):
         # this commented line is used to randomize the initial position of the robot
         self.dof_pos[
             env_ids] = self.default_dof_pos  # * torch_rand_float(0.5, 1.5, (len(env_ids), self.num_dof), device=self.device
+        self.dof_pos[env_ids, self.ctrl_joints_idx[0]] = torch.rand(len(env_ids), device=self.device) * 0.6 - 0.3
+        self.dof_pos[env_ids, self.ctrl_joints_idx[1]] = torch.rand(len(env_ids), device=self.device) * 0.6 - 0.3
+        self.dof_pos[env_ids, self.ctrl_joints_idx[2]] = torch.rand(len(env_ids), device=self.device) * 0.6 - 0.3
+
         # reset puck pos
         reset_puck_pos = self.get_reset_puck_pos()
         self.dof_pos[env_ids, self.puck_pos_idx[0]] = reset_puck_pos[env_ids, 0]
         self.dof_pos[env_ids, self.puck_pos_idx[1]] = reset_puck_pos[env_ids, 1]
+        # reset puck vel
+        self.dof_vel[env_ids, self.puck_vel_idx[0]] = 0.
+        self.dof_vel[env_ids, self.puck_vel_idx[1]] = 0.
 
         env_ids_int32 = env_ids.to(dtype=torch.int32)
         self.gym.set_dof_state_tensor_indexed(self.sim,
