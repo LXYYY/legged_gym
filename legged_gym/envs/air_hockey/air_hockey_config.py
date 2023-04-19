@@ -8,7 +8,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 300
+        num_envs = 10
         num_observations = 13  # original 12 + step
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
@@ -156,6 +156,9 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
 
     class runner(LeggedRobotCfgPPO.runner):
         num_steps_per_env = 1000
+        resume = True
+        load_run = 'April_19_01_00' # -1 = last run
+        checkpoint = 1150 # -1 = last saved model
 
     class algorithm(LeggedRobotCfgPPO.algorithm):
         use_clipped_value_loss = False

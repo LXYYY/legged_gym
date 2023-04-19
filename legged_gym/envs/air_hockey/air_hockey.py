@@ -228,7 +228,7 @@ class AirHockeyBase(LeggedRobot):
         """
         # pd controller
         # TODO: what's this actions scale?
-        actions_scaled = 0
+        actions_scaled = actions * 0.5
         control_type = self.cfg.control.control_type
         if control_type == "P":
             torques = self.ctrl_p_gains * (

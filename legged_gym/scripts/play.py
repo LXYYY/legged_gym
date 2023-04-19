@@ -51,7 +51,15 @@ def play(args):
     env_cfg.domain_rand.push_robots = False
 
     # prepare environment
-    env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
+    # env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
+    env, env_cfg = task_registry.make_env(name=args.task, args=args)
+
+    from air_hockey_challenge.framework.air_hockey_challenge_wrapper import AirHockeyChallengeWrapper
+    env_wp = AirHockeyChallengeWrapper(env="3dof-hit", action_type="position_velocity", interpolation_order=3,
+                                       debug=False)
+    env.clone_mujoco_controller(env_wp.base_env)
+    env.clone_env_info(env_wp.base_env)
+
     obs = env.get_observations()
     # load policy
     train_cfg.runner.resume = True
@@ -65,23 +73,31 @@ def play(args):
         print('Exported policy as jit script to: ', path)
 
     logger = Logger(env.dt)
-    robot_index = 0 # which robot is used for logging
-    joint_index = 1 # which joint is used for logging
-    stop_state_log = 100 # number of steps before plotting states
-    stop_rew_log = env.max_episode_length + 1 # number of steps before print average episode rewards
+    robot_index = 0  # which robot is used for logging
+    joint_index = 1  # which joint is used for logging
+    stop_state_log = 100  # number of steps before plotting states
+    stop_rew_log = env.max_episode_length + 1  # number of steps before print average episode rewards
     camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)
     camera_vel = np.array([1., 1., 0.])
     camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
     img_idx = 0
 
-    for i in range(10*int(env.max_episode_length)):
-        actions = policy(obs.detach())
-        obs, _, rews, dones, infos = env.step(actions.detach())
+    high_actions = torch.rand(env.num_envs, train_cfg.policy.high.num_actions, dtype=torch.float32, device=env.device)
+    mid_actions = torch.rand(env.num_envs, train_cfg.policy.mid.num_actions, dtype=torch.float32, device=env.device)
+    low_actions = torch.rand(env.num_envs, train_cfg.policy.low.num_actions, dtype=torch.float32, device=env.device)
+    low_dones = torch.ones(env.num_envs, dtype=torch.bool, device=env.device)
+    mid_dones = torch.ones(env.num_envs, dtype=torch.bool, device=env.device)
+
+    for i in range(10 * int(env.max_episode_length)):
+        high_actions, mid_actions, low_actions = policy(obs.detach(), high_actions, mid_dones, mid_actions, low_dones, low_actions)
+        obs, _, rews, dones, infos = env.step(low_actions.detach())
+        high_dones, mid_dones, low_dones = env.get_done_levels()
         if RECORD_FRAMES:
             if i % 2:
-                filename = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'frames', f"{img_idx}.png")
+                filename = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported',
+                                        'frames', f"{img_idx}.png")
                 env.gym.write_viewer_image_to_file(env.viewer, filename)
-                img_idx += 1 
+                img_idx += 1
         if MOVE_CAMERA:
             camera_position += camera_vel * env.dt
             env.set_camera(camera_position, camera_position + camera_direction)
@@ -89,24 +105,25 @@ def play(args):
         if i < stop_state_log:
             logger.log_states(
                 {
-                    'dof_pos_target': actions[robot_index, joint_index].item() * env.cfg.control.action_scale,
-                    'dof_pos': env.dof_pos[robot_index, joint_index].item(),
-                    'dof_vel': env.dof_vel[robot_index, joint_index].item(),
-                    'dof_torque': env.torques[robot_index, joint_index].item(),
-                    'command_x': env.commands[robot_index, 0].item(),
-                    'command_y': env.commands[robot_index, 1].item(),
-                    'command_yaw': env.commands[robot_index, 2].item(),
-                    'base_vel_x': env.base_lin_vel[robot_index, 0].item(),
-                    'base_vel_y': env.base_lin_vel[robot_index, 1].item(),
-                    'base_vel_z': env.base_lin_vel[robot_index, 2].item(),
-                    'base_vel_yaw': env.base_ang_vel[robot_index, 2].item(),
-                    'contact_forces_z': env.contact_forces[robot_index, env.feet_indices, 2].cpu().numpy()
+                    'dof_pos_target': low_actions[robot_index, joint_index].item() * env.cfg.control.action_scale,
+                    'dof_pos': env.ctrl_dof_pos[robot_index, joint_index].item(),
+                    'dof_vel': env.ctrl_dof_vel[robot_index, joint_index].item(),
+                    'dof_torque': env.ctrl_torques[robot_index, joint_index].item(),
+
+                    # 'command_x': env.commands[robot_index, 0].item(),
+                    # 'command_y': env.commands[robot_index, 1].item(),
+                    # 'command_yaw': env.commands[robot_index, 2].item(),
+                    # 'base_vel_x': env.base_lin_vel[robot_index, 0].item(),
+                    # 'base_vel_y': env.base_lin_vel[robot_index, 1].item(),
+                    # 'base_vel_z': env.base_lin_vel[robot_index, 2].item(),
+                    # 'base_vel_yaw': env.base_ang_vel[robot_index, 2].item(),
+                    # 'contact_forces_z': env.contact_forces[robot_index, env.feet_indices, 2].cpu().numpy()
                 }
             )
         elif i==stop_state_log:
             logger.plot_states()
         if  0 < i < stop_rew_log:
-            if infos["episode"]:
+            if "episode" in infos:
                 num_episodes = torch.sum(env.reset_buf).item()
                 if num_episodes>0:
                     logger.log_rewards(infos["episode"], num_episodes)
@@ -114,7 +131,7 @@ def play(args):
             logger.print_rewards()
 
 if __name__ == '__main__':
-    EXPORT_POLICY = True
+    EXPORT_POLICY = False
     RECORD_FRAMES = False
     MOVE_CAMERA = False
     args = get_args()
