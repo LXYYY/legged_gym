@@ -57,9 +57,9 @@ class AirHockeyCfg(LeggedRobotCfg):
             'planar_robot_1/body_ee',
             'planar_robot_1/body_hand'
         }
-        control_type = 'P'
-        stiffness = {'planar_robot_1/joint_1': 1920, 'planar_robot_1/joint_2': 960, 'planar_robot_1/joint_3': 480}
-        damping = {'planar_robot_1/joint_1': 120, 'planar_robot_1/joint_2': 40, 'planar_robot_1/joint_3': 8}
+        control_type = 'V'
+        stiffness = {'planar_robot_1/joint_1': 960, 'planar_robot_1/joint_2': 960, 'planar_robot_1/joint_3': 960}
+        damping = {'planar_robot_1/joint_1': 120, 'planar_robot_1/joint_2': 40, 'planar_robot_1/joint_3': 40}
         # Frames chain: world -> env(?) -> air_hockey -> robot_base -> robot_ee/puck
         robot_base_body = 'planar_robot_1/base'
         actor_body = 'air_hockey'

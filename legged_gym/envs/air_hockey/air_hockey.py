@@ -227,14 +227,15 @@ class AirHockeyBase(LeggedRobot):
             [torch.Tensor]: Torques sent to the simulation
         """
         # pd controller
-        actions_scaled = actions * self.cfg.control.action_scale
+        # TODO: what's this actions scale?
+        actions_scaled = 0
         control_type = self.cfg.control.control_type
         if control_type == "P":
             torques = self.ctrl_p_gains * (
                     actions_scaled + self.ctrl_default_dof_pos - self.ctrl_dof_pos) - self.ctrl_d_gains * self.ctrl_dof_vel
         elif control_type == "V":
-            torques = self.ctrl_p_gains * (actions_scaled - self.dof_vel) - self.d_gains * (
-                    self.dof_vel - self.last_dof_vel) / self.sim_params.dt
+            torques = self.ctrl_p_gains * (actions_scaled - self.ctrl_dof_vel) - self.ctrl_d_gains * (
+                    self.ctrl_dof_vel - self.last_dof_vel[..., self.ctrl_joints_idx]) / self.sim_params.dt
         elif control_type == "T":
             torques = actions_scaled
         else:
@@ -586,7 +587,7 @@ class AirHockeyBase(LeggedRobot):
                 dof_props_asset[i]['stiffness'] = self.cfg.asset.solref[0]
                 dof_props_asset[i]['damping'] = self.cfg.asset.solref[1]
                 dof_props_asset[i]['velocity'] = 100
-                dof_props_asset[i]['effort'] = 1000
+                dof_props_asset[i]['effort'] = 2000
             # if name.endswith('joint_1'):
             #     dof_props_asset[i]['lower'] = -2.96
             #     dof_props_asset[i]['upper'] = 2.96
@@ -850,7 +851,7 @@ class AirHockeyBase(LeggedRobot):
     def map_mid_actions(self, actions):
         # clip actions to [0, 1]
         actions = torch.clamp(actions, 0, 1)
-        actions = actions * 2 * 3.14 - 3.14
+        actions = actions * 20 - 10
         # map q from [0, 1] to dof_pos_limit
         # actions[:, :3] = actions[:, :3] * (
         #         self.dof_pos_limits[self.ctrl_joints_idx, 1] - self.dof_pos_limits[self.ctrl_joints_idx, 0]) + \
@@ -861,7 +862,7 @@ class AirHockeyBase(LeggedRobot):
         # clip actions to [0, 1]
         actions = torch.clamp(actions, 0, 1)
         # map to -10 to 10
-        actions = actions * 2 * 3.14 - 3.14
+        actions = actions * 20 - 10
         # map q from [0, 1] to dof_pos_limit
         # actions[:, :3] = actions[:, :3] * (
         #         self.dof_pos_limits[self.ctrl_joints_idx, 1] - self.dof_pos_limits[self.ctrl_joints_idx, 0]) + \
