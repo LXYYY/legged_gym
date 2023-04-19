@@ -8,7 +8,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 10
+        num_envs = 500
         num_observations = 13  # original 12 + step
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
@@ -58,8 +58,8 @@ class AirHockeyCfg(LeggedRobotCfg):
             'planar_robot_1/body_hand'
         }
         control_type = 'V'
-        stiffness = {'planar_robot_1/joint_1': 960, 'planar_robot_1/joint_2': 960, 'planar_robot_1/joint_3': 960}
-        damping = {'planar_robot_1/joint_1': 120, 'planar_robot_1/joint_2': 40, 'planar_robot_1/joint_3': 40}
+        stiffness = {'planar_robot_1/joint_1': 100, 'planar_robot_1/joint_2': 100, 'planar_robot_1/joint_3': 100}
+        damping = {'planar_robot_1/joint_1': 10, 'planar_robot_1/joint_2': 10, 'planar_robot_1/joint_3': 10}
         # Frames chain: world -> env(?) -> air_hockey -> robot_base -> robot_ee/puck
         robot_base_body = 'planar_robot_1/base'
         actor_body = 'air_hockey'
@@ -67,9 +67,9 @@ class AirHockeyCfg(LeggedRobotCfg):
 
     class init_state(LeggedRobotCfg.init_state):
         default_joint_angles = {
-            'planar_robot_1/joint_1': -1.15570723,
-            'planar_robot_1/joint_2': 1.30024401,
-            'planar_robot_1/joint_3': 1.44280414
+            'planar_robot_1/joint_1': 0,
+            'planar_robot_1/joint_2': 0,
+            'planar_robot_1/joint_3': 0
         }
         random_joints = {
             'pack_x',
@@ -194,4 +194,4 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             actor_hidden_dims = [128, 64]
             critic_hidden_dims = [128, 64]
             obs_idx = [6, 7, 8, 9, 10, 11]
-            init_noise_std = 0.05
+            init_noise_std = 0.1

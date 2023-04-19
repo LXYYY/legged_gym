@@ -586,7 +586,7 @@ class AirHockeyBase(LeggedRobot):
             if name in self.cfg.control.control_joint_idx.keys():
                 dof_props_asset[i]['stiffness'] = self.cfg.asset.solref[0]
                 dof_props_asset[i]['damping'] = self.cfg.asset.solref[1]
-                dof_props_asset[i]['velocity'] = 100
+                dof_props_asset[i]['velocity'] = 20
                 dof_props_asset[i]['effort'] = 2000
             # if name.endswith('joint_1'):
             #     dof_props_asset[i]['lower'] = -2.96
@@ -850,12 +850,14 @@ class AirHockeyBase(LeggedRobot):
 
     def map_mid_actions(self, actions):
         # clip actions to -100, 100
-        actions = torch.clamp(actions, -100, 100)
+        actions *= 3.14
+        actions = torch.clamp(actions, -3.14, 3.14)
         return actions
 
     def map_low_actions(self, actions):
         # clip actions to -100, 100
-        actions = torch.clamp(actions, -100, 100)
+        actions *= 200
+        actions = torch.clamp(actions, -200, 200)
         return actions
 
     def _compute_reward_mid_low(self, high_action, mid_action):
