@@ -8,13 +8,13 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 1000
+        num_envs = 4
         num_observations = 13  # original 12 + step
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
         env_spacing = 3.  # not used with heightfields/trimeshes
         send_timeouts = False  # send time out information to the algorithm
-        episode_length_s = 2  # episode length in seconds
+        episode_length_s = 3  # episode length in seconds
 
         goal_x = 2.484
         goal_width = 0.25
@@ -58,8 +58,8 @@ class AirHockeyCfg(LeggedRobotCfg):
             'planar_robot_1/body_hand'
         }
         control_type = 'P'
-        stiffness = {'planar_robot_1/joint_1': 960, 'planar_robot_1/joint_2': 480, 'planar_robot_1/joint_3': 240}
-        damping = {'planar_robot_1/joint_1': 60, 'planar_robot_1/joint_2': 20, 'planar_robot_1/joint_3': 4}
+        stiffness = {'planar_robot_1/joint_1': 1920, 'planar_robot_1/joint_2': 960, 'planar_robot_1/joint_3': 480}
+        damping = {'planar_robot_1/joint_1': 120, 'planar_robot_1/joint_2': 40, 'planar_robot_1/joint_3': 8}
         # Frames chain: world -> env(?) -> air_hockey -> robot_base -> robot_ee/puck
         robot_base_body = 'planar_robot_1/base'
         actor_body = 'air_hockey'
@@ -159,6 +159,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
 
     class algorithm(LeggedRobotCfgPPO.algorithm):
         use_clipped_value_loss = False
+        desired_kl = 0.01
 
     class policy:
         class high(LeggedRobotCfgPPO.policy):
@@ -169,7 +170,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             actor_hidden_dims = [256, 128]
             critic_hidden_dims = [256, 128]
             obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-            init_noise_std = 0.5
+            init_noise_std = 0.1
 
 
         class mid(LeggedRobotCfgPPO.policy):
@@ -180,7 +181,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             actor_hidden_dims = [256, 128]
             critic_hidden_dims = [256, 128]
             obs_idx = [6, 7, 8, 9, 10, 11]
-            # init_noise_std = 0.5
+            init_noise_std = 0.05
 
         class low(LeggedRobotCfgPPO.policy):
             num_actions = 3  # q, qd for 3 joints
@@ -190,4 +191,4 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             actor_hidden_dims = [128, 64]
             critic_hidden_dims = [128, 64]
             obs_idx = [6, 7, 8, 9, 10, 11]
-            # init_noise_std = 0.5
+            init_noise_std = 0.05

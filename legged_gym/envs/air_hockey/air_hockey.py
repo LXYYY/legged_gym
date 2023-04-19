@@ -585,17 +585,17 @@ class AirHockeyBase(LeggedRobot):
             if name in self.cfg.control.control_joint_idx.keys():
                 dof_props_asset[i]['stiffness'] = self.cfg.asset.solref[0]
                 dof_props_asset[i]['damping'] = self.cfg.asset.solref[1]
-                dof_props_asset[i]['velocity'] = 20
-                dof_props_asset[i]['effort'] = 80
-            if name.endswith('joint_1'):
-                dof_props_asset[i]['lower'] = -2.96
-                dof_props_asset[i]['upper'] = 2.96
-            if name.endswith('joint_2'):
-                dof_props_asset[i]['lower'] = -1.8
-                dof_props_asset[i]['upper'] = 1.8
-            if name.endswith('joint_3'):
-                dof_props_asset[i]['lower'] = -2.09
-                dof_props_asset[i]['upper'] = 2.09
+                dof_props_asset[i]['velocity'] = 100
+                dof_props_asset[i]['effort'] = 1000
+            # if name.endswith('joint_1'):
+            #     dof_props_asset[i]['lower'] = -2.96
+            #     dof_props_asset[i]['upper'] = 2.96
+            # if name.endswith('joint_2'):
+            #     dof_props_asset[i]['lower'] = -1.8
+            #     dof_props_asset[i]['upper'] = 1.8
+            # if name.endswith('joint_3'):
+            #     dof_props_asset[i]['lower'] = -2.09
+            #     dof_props_asset[i]['upper'] = 2.09
         # TODO read pos/vel/torque limits
         return super(AirHockeyBase, self)._process_dof_props(dof_props_asset, env_id)
 
@@ -850,19 +850,22 @@ class AirHockeyBase(LeggedRobot):
     def map_mid_actions(self, actions):
         # clip actions to [0, 1]
         actions = torch.clamp(actions, 0, 1)
+        actions = actions * 2 * 3.14 - 3.14
         # map q from [0, 1] to dof_pos_limit
-        actions[:, :3] = actions[:, :3] * (
-                self.dof_pos_limits[self.ctrl_joints_idx, 1] - self.dof_pos_limits[self.ctrl_joints_idx, 0]) + \
-                         self.dof_pos_limits[self.ctrl_joints_idx, 0]
+        # actions[:, :3] = actions[:, :3] * (
+        #         self.dof_pos_limits[self.ctrl_joints_idx, 1] - self.dof_pos_limits[self.ctrl_joints_idx, 0]) + \
+        #                  self.dof_pos_limits[self.ctrl_joints_idx, 0]
         return actions
 
     def map_low_actions(self, actions):
         # clip actions to [0, 1]
         actions = torch.clamp(actions, 0, 1)
+        # map to -10 to 10
+        actions = actions * 2 * 3.14 - 3.14
         # map q from [0, 1] to dof_pos_limit
-        actions[:, :3] = actions[:, :3] * (
-                self.dof_pos_limits[self.ctrl_joints_idx, 1] - self.dof_pos_limits[self.ctrl_joints_idx, 0]) + \
-                         self.dof_pos_limits[self.ctrl_joints_idx, 0]
+        # actions[:, :3] = actions[:, :3] * (
+        #         self.dof_pos_limits[self.ctrl_joints_idx, 1] - self.dof_pos_limits[self.ctrl_joints_idx, 0]) + \
+        #                  self.dof_pos_limits[self.ctrl_joints_idx, 0]
         return actions
 
     def _compute_reward_mid_low(self, high_action, mid_action):
