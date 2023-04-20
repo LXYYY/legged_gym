@@ -179,9 +179,7 @@ class AirHockeyBase(LeggedRobot):
                         clipped_action = np.apply_along_axis(self.enforce_safety_limits, 1, actions_step_env_id)
                         self.ctrl_actions = torch.from_numpy(clipped_action).to(torch.float32).to(self.device)
                     else:
-                        # self.ctrl_actions = actions
-                        clip_actions = self.cfg.normalization.clip_actions
-                        self.ctrl_actions = torch.clip(actions, -clip_actions, clip_actions).to(self.device)
+                        self.ctrl_actions = actions
 
                     self.ctrl_torques = self._compute_torques(self.ctrl_actions).view(self.ctrl_torques.shape)
                     self.torques[:, self.ctrl_joints_idx[0]] = self.ctrl_torques[:, 0]
@@ -224,7 +222,7 @@ class AirHockeyBase(LeggedRobot):
         """
         # pd controller
         # TODO: what's this actions scale?
-        actions_scaled = actions * 0.5
+        actions_scaled = actions
         control_type = self.cfg.control.control_type
         if control_type == "P":
             torques = self.ctrl_p_gains * (
@@ -648,7 +646,7 @@ class AirHockeyBase(LeggedRobot):
                 dof_props_asset[i]['stiffness'] = self.cfg.asset.solref[0]
                 dof_props_asset[i]['damping'] = self.cfg.asset.solref[1]
                 dof_props_asset[i]['velocity'] = 20
-                dof_props_asset[i]['effort'] = 2000
+                dof_props_asset[i]['effort'] = 200
             # if name.endswith('joint_1'):
             #     dof_props_asset[i]['lower'] = -2.96
             #     dof_props_asset[i]['upper'] = 2.96
@@ -815,9 +813,17 @@ class AirHockeyBase(LeggedRobot):
         return masked_reward
 
     def _reward_jerk(self):
-        return torch.sum(
+        jerk = torch.sum(
             torch.square(
                 (self.last_dof_acc[:, self.ctrl_joints_idx] - self.dof_acc[:, self.ctrl_joints_idx]) / self.dt), dim=1)
+        jerk = torch.clamp(jerk, max=3e-7)
+        return jerk
+
+    def _reward_torque_limits(self):
+        # penalize torques too close to the limit
+        return torch.sum(
+            (torch.abs(self.ctrl_torques) - self.ctrl_torque_limits * self.cfg.rewards.soft_torque_limit).clip(min=0.),
+            dim=1)
 
     def _reward_ee_pos_subgoal(self, high_action):
         """ Reward for end-effector position

@@ -143,7 +143,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         tracking_sigma = 0.25  # tracking reward = exp(-error^2/sigma)
         soft_dof_pos_limit = 1.  # percentage of urdf limits, values above this limit are penalized
         soft_dof_vel_limit = 1.
-        soft_torque_limit = 1.
+        soft_torque_limit = 0.6
         base_height_target = 1.
         max_contact_force = 100.  # forces above this value are penalized
 
@@ -154,14 +154,6 @@ class AirHockeyCfg(LeggedRobotCfg):
         min_dof_pos_done = 0.002  # rad >~ 0.1 deg
         min_dof_vel_done = 0.002  # rad >~ 0.1 deg
         min_ee_vel_diff = 0.05
-
-        tracking_sigma = 0.25  # tracking reward = exp(-error^2/sigma)
-        soft_dof_pos_limit = 1.  # percentage of urdf limits, values above this limit are penalized
-        soft_dof_vel_limit = 1.
-        soft_torque_limit = 1.
-        base_height_target = 1.
-        max_contact_force = 100.  # forces above this value are penalized
-
 
 class AirHockeyCfgPPO(LeggedRobotCfgPPO):
     num_actions = 6
