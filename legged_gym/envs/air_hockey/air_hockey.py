@@ -883,22 +883,23 @@ class AirHockeyBase(LeggedRobot):
         """ Map actions to the environment
         """
         # clip actions to [-1, 1]
-        actions = torch.clamp(actions, -1, 1)
-        actions[:, 0] = actions[:, 0] * 0.5 + 1
-        actions[:, 1] = actions[:, 1] * 0.5
-        actions[:, 2] *= 1.5
+        actions *= 0.01
+        actions = torch.clamp(actions, -2, 2)
+        # actions[:, 0] = actions[:, 0] * 0.5 + 1
+        # actions[:, 1] = actions[:, 1] * 0.5
+        # actions[:, 2] *= 1.5
         # map y to [-1, 1]
         return actions
 
     def map_mid_actions(self, actions):
         # clip actions to -100, 100
-        actions *= 3.14
+        actions *= 0.01
         actions = torch.clamp(actions, -3.14, 3.14)
         return actions
 
     def map_low_actions(self, actions):
         # clip actions to -100, 100
-        actions *= 200
+        actions *= 0.01
         actions = torch.clamp(actions, -200, 200)
         return actions
 
