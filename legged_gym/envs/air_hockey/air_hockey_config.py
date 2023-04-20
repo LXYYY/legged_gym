@@ -8,7 +8,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 5
+        num_envs = 9000
         num_observations = 13  # original 12 + step
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
@@ -57,7 +57,7 @@ class AirHockeyCfg(LeggedRobotCfg):
             'planar_robot_1/body_ee',
             'planar_robot_1/body_hand'
         }
-        control_type = 'V'
+        control_type = 'T'
         stiffness = {'planar_robot_1/joint_1': 100, 'planar_robot_1/joint_2': 100, 'planar_robot_1/joint_3': 100}
         damping = {'planar_robot_1/joint_1': 10, 'planar_robot_1/joint_2': 10, 'planar_robot_1/joint_3': 10}
         # Frames chain: world -> env(?) -> air_hockey -> robot_base -> robot_ee/puck
@@ -66,7 +66,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         ee_body = 'planar_robot_1/body_ee'
 
     class noise:
-        add_noise = True
+        add_noise = False
         noise_level = 1.0  # scales other values
 
         class noise_scales:
@@ -108,10 +108,11 @@ class AirHockeyCfg(LeggedRobotCfg):
     class rewards:
         class scales:
             # time_utl_success = -1
-            high_termination = 1000000
-            ee_pos = -1
-            hit_puck = 1
-            puck_x = 1
+            high_termination = 100000
+            ee_pos = -10
+            hit_puck = 10
+            puck_x = 10
+            ee_outside_table=-100
             # ee_puck_contact = 1000
             # final_ee_vel = 10
             # jerk = -100
@@ -120,11 +121,11 @@ class AirHockeyCfg(LeggedRobotCfg):
             #
             # torques = -5e-7
             # dof_vel = -5e-7
-            # dof_acc = -2.5e-7
+            dof_acc = -2.5e-9
 
         class mid_scales:
             ee_pos_subgoal = -1
-            mid_termination = 100
+            mid_termination = 10
             ee_vel_subgoal = -0.5
             ee_outside_table = -100
 
@@ -132,10 +133,10 @@ class AirHockeyCfg(LeggedRobotCfg):
             dof_pos_subgoal = -1
             low_termination = 100
             # torques = -5e-7
-            # dof_vel = -5e-5
-            dof_acc = -1e-11
+            dof_vel = -5e-2
+            dof_acc = -1e-8
             dof_pos_limits = -1e4
-            dof_vel_limits = -1e4
+            dof_vel_limits = -1e2
             torque_limits = -1e4
             ee_outside_table = -100
 
@@ -167,9 +168,11 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
 
     class runner(LeggedRobotCfgPPO.runner):
         num_steps_per_env = 1000
-        resume = True
-        load_run = '19_19_16_obs_norm_noise'  # -1 = last run
-        checkpoint = 100  # -1 = last saved model
+        resume = False
+        load_run = -1  # -1 = last run
+        checkpoint = -1  # -1 = last saved model
+        max_iterations = 2500 # number of policy updates
+
 
     class algorithm(LeggedRobotCfgPPO.algorithm):
         use_clipped_value_loss = False
@@ -184,7 +187,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             actor_hidden_dims = [256, 128]
             critic_hidden_dims = [256, 128]
             obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-            # init_noise_std = 0.1
+            init_noise_std = 500
 
 
         class mid(LeggedRobotCfgPPO.policy):
@@ -195,7 +198,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             actor_hidden_dims = [256, 128]
             critic_hidden_dims = [256, 128]
             obs_idx = [6, 7, 8, 9, 10, 11, 12]
-            # init_noise_std = 0.05
+            init_noise_std = 100
 
         class low(LeggedRobotCfgPPO.policy):
             num_actions = 3  # q, qd for 3 joints
@@ -205,4 +208,4 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             actor_hidden_dims = [128, 64]
             critic_hidden_dims = [128, 64]
             obs_idx = [6, 7, 8, 9, 10, 11, 12]
-            # init_noise_std = 0.1
+            init_noise_std = 500
