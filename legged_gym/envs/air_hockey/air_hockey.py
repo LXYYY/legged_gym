@@ -260,6 +260,7 @@ class AirHockeyBase(LeggedRobot):
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         self.reset_idx(env_ids)
 
+        self.last_dof_acc[:] = self.dof_acc[:]
         self.last_actions[:] = self.actions[:]
         self.last_dof_vel[:] = self.dof_vel[:]
         self.last_root_vel[:] = self.root_states[:, 7:13]
@@ -332,6 +333,8 @@ class AirHockeyBase(LeggedRobot):
         if self.add_noise:
             self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
 
+        self.dof_acc = self.dof_vel[:] - self.last_dof_vel[:]
+
     def _get_noise_scale_vec(self, cfg):
         """ Sets a vector used to scale the noise added to the observations.
             [NOTE]: Must be adapted when changing the observations structure
@@ -394,6 +397,8 @@ class AirHockeyBase(LeggedRobot):
         self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device,
                                         requires_grad=False)
         self.last_dof_vel = torch.zeros_like(self.dof_vel)
+        self.dof_acc = torch.zeros_like(self.dof_vel)
+        self.last_dof_acc = torch.zeros_like(self.dof_vel)
         self.last_root_vel = torch.zeros_like(self.root_states[:, 7:13])
         self.commands = torch.zeros(self.num_envs, self.cfg.commands.num_commands, dtype=torch.float,
                                     device=self.device, requires_grad=False)  # x vel, y vel, yaw vel, heading
@@ -810,7 +815,9 @@ class AirHockeyBase(LeggedRobot):
         return masked_reward
 
     def _reward_jerk(self):
-        return 0
+        return torch.sum(
+            torch.square(
+                (self.last_dof_acc[:, self.ctrl_joints_idx] - self.dof_acc[:, self.ctrl_joints_idx]) / self.dt), dim=1)
 
     def _reward_ee_pos_subgoal(self, high_action):
         """ Reward for end-effector position
@@ -987,3 +994,9 @@ class AirHockeyBase(LeggedRobot):
 
     def _reward_ee_outside_table(self):
         return self.ee_pos[:, 0] < 0.6
+
+    def _reward_dof_acc(self):
+        return torch.sum(torch.square(self.dof_acc[:, self.ctrl_joints_idx] / self.dt), dim=1)
+
+    def _reward_dof_vel(self):
+        return torch.sum(torch.square(self.dof_vel[:, self.ctrl_joints_idx]), dim=1)
