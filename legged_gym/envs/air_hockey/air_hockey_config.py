@@ -168,7 +168,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
     num_actions = 6
 
     class runner(LeggedRobotCfgPPO.runner):
-        num_steps_per_env = 600
+        num_steps_per_env = 3000
         resume = False
         load_run = -1  # -1 = last run
         checkpoint = -1  # -1 = last saved model
