@@ -8,7 +8,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 20000
+        num_envs = 600
         num_observations = 13  # original 12 + step
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
@@ -140,8 +140,8 @@ class AirHockeyCfg(LeggedRobotCfg):
             # dof_pos_limits = -1e4
             # dof_vel_limits = -1e2
             torque_limits = -50
-            torques = -5e-2
-            jerk = -5e-7
+            torques = -5e-3
+            jerk = -5e-6
 
         tracking_sigma = 0.25  # tracking reward = exp(-error^2/sigma)
         soft_dof_pos_limit = 1.  # percentage of urdf limits, values above this limit are penalized
@@ -161,11 +161,14 @@ class AirHockeyCfg(LeggedRobotCfg):
         reset_on_success = True
         reset_on_fail = True
 
+        max_curri_level = 20
+        adaptive_curriculum = True
+
 class AirHockeyCfgPPO(LeggedRobotCfgPPO):
     num_actions = 6
 
     class runner(LeggedRobotCfgPPO.runner):
-        num_steps_per_env = 3000
+        num_steps_per_env = 600
         resume = False
         load_run = -1  # -1 = last run
         checkpoint = -1  # -1 = last saved model
@@ -202,8 +205,8 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             num_obs = 18  # num_obs+mid_done
             num_steps = 100  # 50 high actions per episode
             num_steps_per_env = 30
-            actor_hidden_dims = [256, 128]
-            critic_hidden_dims = [256, 128]
+            actor_hidden_dims = [512, 256, 128]
+            critic_hidden_dims = [512, 256, 128]
             obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
             init_noise_std = 0.6
 

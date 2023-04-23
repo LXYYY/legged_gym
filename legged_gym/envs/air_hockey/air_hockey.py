@@ -51,6 +51,7 @@ class AirHockeyBase(LeggedRobot):
         self.fail_buf = torch.zeros_like(self.rew_buf, dtype=torch.bool)
         self.ee_outside_buf = torch.zeros_like(self.rew_buf, dtype=torch.bool)
         self.puck_outside_buf = torch.zeros_like(self.rew_buf, dtype=torch.bool)
+        self.curri_level_buf = torch.ones_like(self.rew_buf, dtype=torch.float) * 0.95
 
     def clone_mujoco_controller(self, controller: PositionControlPlanar):
         # clone the mujoco controller and delete the original to reduce memory usage
@@ -707,6 +708,7 @@ class AirHockeyBase(LeggedRobot):
         self.episode_hit_puck_buf[env_ids] = 0
         self.success_buf[env_ids] = 0
         self.fail_buf[env_ids] = 0
+        self.curri_level_buf[env_ids] = 1
 
         # fill extras
         self.extras["episode"] = {}
@@ -732,8 +734,16 @@ class AirHockeyBase(LeggedRobot):
             env_ids (List[int]): Environemnt ids
         """
         # this commented line is used to randomize the initial position of the robot
-        self.dof_pos[
-            env_ids] = self.default_dof_pos  # * torch_rand_float(0.5, 1.5, (len(env_ids), self.num_dof), device=self.device
+        self.dof_pos[env_ids] = self.default_dof_pos
+        if self.cfg.rewards.adaptive_curriculum:
+            min_curri = 1 / self.curri_level_buf[env_ids] - 0.1
+            min_curri = min_curri.unsqueeze(-1).repeat(1, 11)
+            random_values = torch.rand(len(env_ids), 11, device=self.device)
+            max_curri = 1
+
+            # Scale the random values to fit the desired range and add the minimum values
+            offsets = random_values * (max_curri - min_curri) + min_curri
+            self.dof_pos[env_ids] *= offsets
         # self.dof_pos[env_ids, self.ctrl_joints_idx[0]] = torch.rand(len(env_ids), device=self.device) * 0.6 - 0.3
         # self.dof_pos[env_ids, self.ctrl_joints_idx[1]] = torch.rand(len(env_ids), device=self.device) * 0.6 - 0.3
         # self.dof_pos[env_ids, self.ctrl_joints_idx[2]] = torch.rand(len(env_ids), device=self.device) * 0.6 - 0.3
@@ -789,6 +799,8 @@ class AirHockeyBase(LeggedRobot):
 
         self.success_buf |= success_buf
 
+        self.curri_level_buf = torch.clip(self.curri_level_buf + success_buf, 0.95, self.cfg.rewards.max_curri_level)
+
         if self.cfg.rewards.reset_on_success:
             self.reset_buf |= self.success_buf
 
@@ -796,6 +808,10 @@ class AirHockeyBase(LeggedRobot):
         self.puck_outside_buf = self.puck_pos[:, 0] < 0.5
 
         self.fail_buf = self.ee_outside_buf | self.puck_outside_buf
+
+        reduce_level_buf = ~self.episode_hit_puck_buf & self.time_out_buf  # timeout but not hit puck
+        self.curri_level_buf = torch.clip(self.curri_level_buf - reduce_level_buf * 1., 0.96,
+                                          self.cfg.rewards.max_curri_level)
 
         if self.cfg.rewards.reset_on_fail:
             self.reset_buf |= self.fail_buf
