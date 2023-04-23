@@ -257,8 +257,8 @@ class AirHockeyBase(LeggedRobot):
 
         # compute observations, rewards, resets, ...
         self.compute_observations()  # in some cases a simulation step might be required to refresh some obs (for example body positions)
-        self.compute_done_mid_low()
         self.check_termination()
+        self.compute_done_mid_low()
         self.compute_reward()
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         self.reset_idx(env_ids)
@@ -992,14 +992,16 @@ class AirHockeyBase(LeggedRobot):
         mid_pos_done_buf = self.mid_ee_pos_diff < self.cfg.rewards.min_puck_ee_dist
         mid_vel_done_buf = self.mid_ee_vel_diff < self.cfg.rewards.min_ee_vel_diff
         self.mid_done_buf = mid_pos_done_buf & mid_vel_done_buf
-        self.mid_done_buf = self.mid_done_buf.all(dim=1)
+        self.mid_done_buf = self.mid_done_buf.all(dim=1) & self.mid_timeout
+        self.mid_done_buf |= self.reset_buf
         self.low_done_buf = self.low_dof_pos_diff < self.cfg.rewards.min_dof_pos_done
         # self.low_done_buf &= self.low_dof_vel_diff < self.cfg.rewards.min_dof_vel_done
-        self.low_done_buf = self.low_done_buf.all(dim=1)
+        self.low_done_buf = self.low_done_buf.all(dim=1) & self.low_timeout
+        self.low_done_buf |= self.reset_buf
         return self.mid_done_buf, self.low_done_buf
 
     def get_done_levels(self):
-        return self.success_buf, self.mid_done_buf, self.low_done_buf
+        return self.reset_buf, self.mid_done_buf, self.low_done_buf
 
     def get_reward_mid_low(self):
         return self.mid_rew_buf, self.low_rew_buf
