@@ -179,6 +179,8 @@ class AirHockeyBase(LeggedRobot):
                         clipped_action = np.apply_along_axis(self.enforce_safety_limits, 1, actions_step_env_id)
                         self.ctrl_actions = torch.from_numpy(clipped_action).to(torch.float32).to(self.device)
                     else:
+                        # self.ctrl_actions = actions
+                        # clip_actions = self.cfg.normalization.clip_actions
                         self.ctrl_actions = actions
 
                     self.ctrl_torques = self._compute_torques(self.ctrl_actions).view(self.ctrl_torques.shape)
@@ -646,7 +648,7 @@ class AirHockeyBase(LeggedRobot):
                 dof_props_asset[i]['stiffness'] = self.cfg.asset.solref[0]
                 dof_props_asset[i]['damping'] = self.cfg.asset.solref[1]
                 dof_props_asset[i]['velocity'] = 20
-                dof_props_asset[i]['effort'] = 200
+                dof_props_asset[i]['effort'] = 400
             # if name.endswith('joint_1'):
             #     dof_props_asset[i]['lower'] = -2.96
             #     dof_props_asset[i]['upper'] = 2.96
@@ -816,7 +818,7 @@ class AirHockeyBase(LeggedRobot):
         jerk = torch.sum(
             torch.square(
                 (self.last_dof_acc[:, self.ctrl_joints_idx] - self.dof_acc[:, self.ctrl_joints_idx]) / self.dt), dim=1)
-        jerk = torch.clamp(jerk, max=3e-7)
+        jerk = torch.clamp(jerk, max=3e8)
         return jerk
 
     def _reward_torque_limits(self):
@@ -997,6 +999,9 @@ class AirHockeyBase(LeggedRobot):
 
     def _reward_puck_x(self):
         return self.puck_pos[:, 0] * self.episode_hit_puck_buf
+
+    def _reward_puck_y(self):
+        return (0.5 - torch.abs(self.puck_pos[:, 1])) * self.episode_hit_puck_buf
 
     def _reward_ee_outside_table(self):
         return self.ee_pos[:, 0] < 0.6

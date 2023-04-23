@@ -107,12 +107,13 @@ class AirHockeyCfg(LeggedRobotCfg):
 
     class rewards:
         class scales:
-            # time_utl_success = -1
-            high_termination = 100000
-            ee_pos = -10
-            hit_puck = 10
-            puck_x = 10
-            ee_outside_table=-100
+            time_utl_success = -1
+            high_termination = 10000
+            ee_pos = -1
+            hit_puck = 1
+            puck_x = 1
+            puck_y = 1
+            # ee_outside_table=-100
             # ee_puck_contact = 1000
             # final_ee_vel = 10
             # collision = -1e4
@@ -120,30 +121,30 @@ class AirHockeyCfg(LeggedRobotCfg):
             #
             # torques = -5e-7
             # dof_vel = -5e-7
-            dof_acc = -2.5e-9
+            # dof_acc = -2.5e-9
 
         class mid_scales:
             ee_pos_subgoal = -1
-            mid_termination = 10
+            mid_termination = 1
             ee_vel_subgoal = -0.5
-            ee_outside_table = -100
+            # ee_outside_table = -100
 
         class low_scales:
-            dof_pos_subgoal = -1
-            low_termination = 100
+            dof_pos_subgoal = -100
+            low_termination = 10
             # torques = -5e-7
-            dof_vel = -5e-2
-            dof_acc = -1e-8
-            dof_pos_limits = -1e4
-            dof_vel_limits = -1e2
-            torque_limits = -1e4
-            ee_outside_table = -100
-            jerk = -1e-5
+            # dof_vel = -5e-2
+            # dof_acc = -1e-8
+            # dof_pos_limits = -1e4
+            # dof_vel_limits = -1e2
+            torque_limits = -1
+            ee_outside_table = -1
+            jerk = -5e-6
 
         tracking_sigma = 0.25  # tracking reward = exp(-error^2/sigma)
         soft_dof_pos_limit = 1.  # percentage of urdf limits, values above this limit are penalized
         soft_dof_vel_limit = 1.
-        soft_torque_limit = 0.6
+        soft_torque_limit = 0.8
         base_height_target = 1.
         max_contact_force = 100.  # forces above this value are penalized
 
@@ -163,12 +164,29 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
         resume = False
         load_run = -1  # -1 = last run
         checkpoint = -1  # -1 = last saved model
-        max_iterations = 2500 # number of policy updates
-
+        max_iterations = 2500  # number of policy updates
 
     class algorithm(LeggedRobotCfgPPO.algorithm):
-        use_clipped_value_loss = False
-        desired_kl = 0.01
+        class high(LeggedRobotCfgPPO.algorithm):
+            use_clipped_value_loss = True
+            desired_kl = 1e-4
+            # max_grad_norm = 0.1
+            learning_rate = 0.0001
+            # num_mini_batches = 8
+
+        class mid(LeggedRobotCfgPPO.algorithm):
+            use_clipped_value_loss = True
+            # desired_kl = 0.005
+            # max_grad_norm = 0.1
+            # learning_rate = 0.0001
+            num_mini_batches = 8
+
+        class low(LeggedRobotCfgPPO.algorithm):
+            use_clipped_value_loss = True
+            desired_kl = 5e-4
+            # max_grad_norm = 0.5
+            # learning_rate = 0.0001
+            num_mini_batches = 16
 
     class policy:
         class high(LeggedRobotCfgPPO.policy):
@@ -179,7 +197,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             actor_hidden_dims = [256, 128]
             critic_hidden_dims = [256, 128]
             obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-            init_noise_std = 100
+            init_noise_std = 0.6
 
 
         class mid(LeggedRobotCfgPPO.policy):
@@ -190,7 +208,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             actor_hidden_dims = [256, 128]
             critic_hidden_dims = [256, 128]
             obs_idx = [6, 7, 8, 9, 10, 11, 12]
-            init_noise_std = 100
+            init_noise_std = 0.6
 
         class low(LeggedRobotCfgPPO.policy):
             num_actions = 3  # q, qd for 3 joints
@@ -200,4 +218,4 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             actor_hidden_dims = [128, 64]
             critic_hidden_dims = [128, 64]
             obs_idx = [6, 7, 8, 9, 10, 11, 12]
-            init_noise_std = 100
+            init_noise_std = 0.6
