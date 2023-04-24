@@ -8,7 +8,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 600
+        num_envs = 20000
         num_observations = 13  # original 12 + step
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
@@ -107,14 +107,13 @@ class AirHockeyCfg(LeggedRobotCfg):
 
     class rewards:
         class scales:
-            time_utl_success = -1
-            high_termination = 100000
-            ee_pos = -1
+            # time_utl_success = -1
+            high_termination = 1000
+            ee_pos = -0.5
             hit_puck = 1
             puck_x = 1
             puck_y = 1
-            puck_outside_table = -100000
-            ee_outside_table = -100000
+            puck_outside_table = -1000
             # ee_outside_table=-100
             # ee_puck_contact = 1000
             # final_ee_vel = 10
@@ -127,7 +126,7 @@ class AirHockeyCfg(LeggedRobotCfg):
 
         class mid_scales:
             ee_pos_subgoal = -1
-            mid_termination = 1
+            mid_termination = 100
             ee_vel_subgoal = -0.5
             # ee_outside_table = -100
 
@@ -142,6 +141,7 @@ class AirHockeyCfg(LeggedRobotCfg):
             torque_limits = -50
             torques = -5e-3
             jerk = -5e-6
+            ee_outside_table = -200
 
         tracking_sigma = 0.25  # tracking reward = exp(-error^2/sigma)
         soft_dof_pos_limit = 1.  # percentage of urdf limits, values above this limit are penalized
@@ -158,8 +158,8 @@ class AirHockeyCfg(LeggedRobotCfg):
         min_dof_vel_done = 0.002  # rad >~ 0.1 deg
         min_ee_vel_diff = 0.05
 
-        reset_on_success = True
-        reset_on_fail = True
+        reset_on_success = False
+        reset_on_fail = False
 
         max_curri_level = 20
         adaptive_curriculum = True
@@ -168,7 +168,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
     num_actions = 6
 
     class runner(LeggedRobotCfgPPO.runner):
-        num_steps_per_env = 3000
+        num_steps_per_env = 500
         resume = False
         load_run = -1  # -1 = last run
         checkpoint = -1  # -1 = last saved model
@@ -180,17 +180,17 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
     class algorithm(LeggedRobotCfgPPO.algorithm):
         class high(LeggedRobotCfgPPO.algorithm):
             use_clipped_value_loss = True
-            # desired_kl = 1e-4
+            # desired_kl = 0.01
             # max_grad_norm = 0.1
             # learning_rate = 0.0001
-            # num_mini_batches = 8
+            num_mini_batches = 16
 
         class mid(LeggedRobotCfgPPO.algorithm):
             use_clipped_value_loss = True
             # desired_kl = 0.005
             # max_grad_norm = 0.1
             # learning_rate = 0.0001
-            num_mini_batches = 8
+            num_mini_batches = 16
 
         class low(LeggedRobotCfgPPO.algorithm):
             use_clipped_value_loss = True
@@ -204,9 +204,9 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             num_actions = 4  # x,y,vel_x,vel_y
             num_obs = 18  # num_obs+mid_done
             num_steps = 100  # 50 high actions per episode
-            num_steps_per_env = 30
-            actor_hidden_dims = [512, 256, 128]
-            critic_hidden_dims = [512, 256, 128]
+            num_steps_per_env = 20
+            actor_hidden_dims = [256, 128]
+            critic_hidden_dims = [256, 128]
             obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
             init_noise_std = 0.6
 
@@ -215,7 +215,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             num_actions = 3  # q, qd for 3 joints
             num_obs = 15  # 6+high_actions+low_done q, qd for 3 joints
             num_steps = 20  # 5 mid action per high action
-            num_steps_per_env = 100
+            num_steps_per_env = 40
             actor_hidden_dims = [256, 128]
             critic_hidden_dims = [256, 128]
             obs_idx = [6, 7, 8, 9, 10, 11, 12]

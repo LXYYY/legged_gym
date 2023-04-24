@@ -700,6 +700,8 @@ class AirHockeyBase(LeggedRobot):
 
         # self._resample_commands(env_ids)
 
+        success_rate = self.success_buf.float().mean().item()
+
         # reset buffers
         self.last_actions[env_ids] = 0.
         self.last_dof_vel[env_ids] = 0.
@@ -708,10 +710,11 @@ class AirHockeyBase(LeggedRobot):
         self.episode_hit_puck_buf[env_ids] = 0
         self.success_buf[env_ids] = 0
         self.fail_buf[env_ids] = 0
-        self.curri_level_buf[env_ids] = 1
+        # self.curri_level_buf[env_ids] = 1
 
         # fill extras
         self.extras["episode"] = {}
+        self.extras["episode"]["success_rate"] = success_rate
         for key in self.episode_sums.keys():
             self.extras["episode"]['rew_' + key] = torch.mean(
                 self.episode_sums[key][env_ids]) / self.max_episode_length_s
@@ -798,18 +801,22 @@ class AirHockeyBase(LeggedRobot):
         success_buf &= torch.abs(self.puck_pos[:, 1]) <= self.cfg.env.goal_width / 2
 
         self.success_buf |= success_buf
+        
+        curri_level_up=self.success_buf & self.time_out_buf
 
-        self.curri_level_buf = torch.clip(self.curri_level_buf + success_buf, 0.95, self.cfg.rewards.max_curri_level)
+        self.curri_level_buf = torch.clip(self.curri_level_buf + curri_level_up, 0.95, self.cfg.rewards.max_curri_level)
 
         if self.cfg.rewards.reset_on_success:
             self.reset_buf |= self.success_buf
 
         self.ee_outside_buf = self.ee_pos[:, 0] < 0.55
-        self.puck_outside_buf = self.puck_pos[:, 0] < 0.5
+        self.puck_outside_buf = self.puck_pos[:, 0] < 0.4
+        
+        self.puck_own_side=self.puck_pos[:,0]<1.5
 
         self.fail_buf = self.ee_outside_buf | self.puck_outside_buf
 
-        reduce_level_buf = ~self.episode_hit_puck_buf & self.time_out_buf  # timeout but not hit puck
+        reduce_level_buf = self.puck_own_side & self.time_out_buf  # timeout but puck still in our own side
         self.curri_level_buf = torch.clip(self.curri_level_buf - reduce_level_buf * 1., 0.96,
                                           self.cfg.rewards.max_curri_level)
 
@@ -1008,16 +1015,16 @@ class AirHockeyBase(LeggedRobot):
         mid_pos_done_buf = self.mid_ee_pos_diff < self.cfg.rewards.min_puck_ee_dist
         mid_vel_done_buf = self.mid_ee_vel_diff < self.cfg.rewards.min_ee_vel_diff
         self.mid_done_buf = mid_pos_done_buf & mid_vel_done_buf
-        self.mid_done_buf = self.mid_done_buf.all(dim=1) & self.mid_timeout
+        self.mid_done_buf = self.mid_done_buf.all(dim=1)
         self.mid_done_buf |= self.reset_buf
         self.low_done_buf = self.low_dof_pos_diff < self.cfg.rewards.min_dof_pos_done
         # self.low_done_buf &= self.low_dof_vel_diff < self.cfg.rewards.min_dof_vel_done
-        self.low_done_buf = self.low_done_buf.all(dim=1) & self.low_timeout
+        self.low_done_buf = self.low_done_buf.all(dim=1)
         self.low_done_buf |= self.reset_buf
         return self.mid_done_buf, self.low_done_buf
 
     def get_done_levels(self):
-        return self.reset_buf, self.mid_done_buf, self.low_done_buf
+        return self.success_buf, self.mid_done_buf, self.low_done_buf
 
     def get_reward_mid_low(self):
         return self.mid_rew_buf, self.low_rew_buf
