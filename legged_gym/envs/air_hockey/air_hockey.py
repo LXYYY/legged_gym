@@ -51,7 +51,11 @@ class AirHockeyBase(LeggedRobot):
         self.fail_buf = torch.zeros_like(self.rew_buf, dtype=torch.bool)
         self.ee_outside_buf = torch.zeros_like(self.rew_buf, dtype=torch.bool)
         self.puck_outside_buf = torch.zeros_like(self.rew_buf, dtype=torch.bool)
-        self.curri_level_buf = torch.ones_like(self.rew_buf, dtype=torch.float) * 0.95
+        self.curri_level_buf = torch.ones_like(self.rew_buf, dtype=torch.float)
+
+        self.goal = torch.zeros((self.num_envs, 2), device=self.device, dtype=torch.float)
+        self.goal[:, 0] = self.cfg.env.goal_x
+        self.goal[:, 1] = self.cfg.env.goal_width / 2
 
     def clone_mujoco_controller(self, controller: PositionControlPlanar):
         # clone the mujoco controller and delete the original to reduce memory usage
@@ -261,6 +265,7 @@ class AirHockeyBase(LeggedRobot):
         self.check_termination()
         self.compute_done_mid_low()
         self.compute_reward()
+        self.adapt_curriculum()
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         self.reset_idx(env_ids)
 
@@ -332,7 +337,8 @@ class AirHockeyBase(LeggedRobot):
         joint_vel = (self.joint_vel - (-20)) / (20 - (-20))
 
         self.obs_buf = torch.cat(
-            (norm_puck_pos, norm_puck_vel, joint_pos, joint_vel, self.episode_length_buf.unsqueeze(1)), dim=1)
+            (norm_puck_pos, norm_puck_vel, joint_pos, joint_vel, self.goal, self.episode_length_buf.unsqueeze(1)),
+            dim=1)
 
         if self.add_noise:
             self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
@@ -738,7 +744,7 @@ class AirHockeyBase(LeggedRobot):
         """
         # this commented line is used to randomize the initial position of the robot
         self.dof_pos[env_ids] = self.default_dof_pos
-        if self.cfg.rewards.adaptive_curriculum:
+        if self.cfg.rewards.adaptive_init:
             min_curri = 1 / self.curri_level_buf[env_ids] - 0.1
             min_curri = min_curri.unsqueeze(-1).repeat(1, 11)
             random_values = torch.rand(len(env_ids), 11, device=self.device)
@@ -797,31 +803,35 @@ class AirHockeyBase(LeggedRobot):
         """
         super(AirHockeyBase, self).check_termination()
 
-        success_buf = self.puck_pos[:, 0] >= self.cfg.env.goal_x
-        success_buf &= torch.abs(self.puck_pos[:, 1]) <= self.cfg.env.goal_width / 2
+        success_buf = self.puck_pos[:, 0] >= self.goal[:, 0]
+        success_buf &= torch.abs(self.puck_pos[:, 1]) <= self.goal[:, 1]
 
         self.success_buf |= success_buf
-        
-        curri_level_up=self.success_buf & self.time_out_buf
-
-        self.curri_level_buf = torch.clip(self.curri_level_buf + curri_level_up, 0.95, self.cfg.rewards.max_curri_level)
 
         if self.cfg.rewards.reset_on_success:
             self.reset_buf |= self.success_buf
 
         self.ee_outside_buf = self.ee_pos[:, 0] < 0.55
         self.puck_outside_buf = self.puck_pos[:, 0] < 0.4
-        
-        self.puck_own_side=self.puck_pos[:,0]<1.5
+
+        # self.puck_own_side = self.puck_pos[:, 0] < 1.5
 
         self.fail_buf = self.ee_outside_buf | self.puck_outside_buf
 
-        reduce_level_buf = self.puck_own_side & self.time_out_buf  # timeout but puck still in our own side
-        self.curri_level_buf = torch.clip(self.curri_level_buf - reduce_level_buf * 1., 0.96,
-                                          self.cfg.rewards.max_curri_level)
-
         if self.cfg.rewards.reset_on_fail:
             self.reset_buf |= self.fail_buf
+
+    def adapt_curriculum(self):
+        curri_level_up = self.success_buf & self.time_out_buf
+        self.curri_level_buf = torch.clip(self.curri_level_buf - curri_level_up * 0.05, 0., 1.)
+        reduce_level_buf = self.puck_outside_buf | ~self.episode_hit_puck_buf  # timeout but puck still in our own side
+        reduce_level_buf &= self.time_out_buf
+        self.curri_level_buf = torch.clip(self.curri_level_buf + reduce_level_buf * 0.05, 0., 1.)
+
+        if self.cfg.rewards.adaptive_goal:
+            self.goal[:, 0] = self.cfg.env.goal_x - (self.cfg.env.goal_x - 1.5) * self.curri_level_buf
+            self.goal[:, 1] = self.cfg.env.goal_width - (self.cfg.env.goal_width - 0.9) * self.curri_level_buf
+            self.goal[:, 1] /= 2
 
     def compute_reward(self):
         """ Compute rewards
