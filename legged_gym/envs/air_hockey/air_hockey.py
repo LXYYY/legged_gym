@@ -52,6 +52,7 @@ class AirHockeyBase(LeggedRobot):
         self.ee_outside_buf = torch.zeros_like(self.rew_buf, dtype=torch.bool)
         self.puck_outside_buf = torch.zeros_like(self.rew_buf, dtype=torch.bool)
         self.curri_level_buf = torch.ones_like(self.rew_buf, dtype=torch.float)
+        self.curri_reduce_buf = torch.zeros_like(self.rew_buf, dtype=torch.float)
 
         self.goal = torch.zeros((self.num_envs, 2), device=self.device, dtype=torch.float)
         self.goal[:, 0] = self.cfg.env.goal_x
@@ -301,21 +302,23 @@ class AirHockeyBase(LeggedRobot):
 
         dof_pos_subgoal = self.mid_actions[:, :3]
         self.low_dof_pos_diff = dof_pos_subgoal - self.joint_pos
-        # dof_vel_subgoal = self.mid_actions[:, 3:6]
-        # self.low_dof_vel_diff = dof_vel_subgoal - self.joint_vel
+        dof_vel_subgoal = self.mid_actions[:, 3:6]
+        self.low_dof_vel_diff = dof_vel_subgoal - self.joint_vel
 
         ee_pos_subgoal = self.high_actions[:, :2]
         self.mid_ee_pos_diff = ee_pos_subgoal - self.ee_pos[:, :2]
 
         ee_vel_subgoal = self.high_actions[:, 2:]
+        ee_vel_subgoal=torch.zeros_like(ee_vel_subgoal)
         self.mid_ee_vel_diff = ee_vel_subgoal - self.ee_vel[:, :2]
 
-        hit_puck_buf = self.contact_forces[:, self.puck_body_idx, 0:2] > self.cfg.env.contact_force_threshold
+        hit_puck_buf = torch.abs(self.contact_forces[:, self.puck_body_idx, 0:2]) > self.cfg.env.contact_force_threshold
         hit_puck_buf = hit_puck_buf.any(dim=1)
         # rim_contact = self.contact_forces[:, self.rim_body_idx, 0:2] > self.cfg.env.contact_force_threshold
         # rim_contact = rim_contact.any(dim=1)
-        ee_hit_buf = self.contact_forces[:, self.ee_body_idx, 0:2] > self.cfg.env.contact_force_threshold
+        ee_hit_buf = torch.abs(self.contact_forces[:, self.ee_body_idx, 0:2]) > self.cfg.env.contact_force_threshold
         ee_hit_buf = ee_hit_buf.any(dim=1)
+        self.ee_colli_buf=~hit_puck_buf & ee_hit_buf
         self.hit_puck_buf = hit_puck_buf & ee_hit_buf
         self.episode_hit_puck_buf |= self.hit_puck_buf
 
@@ -649,7 +652,7 @@ class AirHockeyBase(LeggedRobot):
         for i, body_names in enumerate(self.body_names):
             props = rigid_shape_props_asset[idx[i].start:idx[i].start + idx[i].count]
             # if body_names.endswith('body_ee') or body_names.startswith('puck') or body_names.startswith('rim'):
-            _ = [setattr(prop, 'restitution', 0.8) for prop in props]
+            _ = [setattr(prop, 'restitution', 0.5) for prop in props]
         return rigid_shape_props_asset
 
     def _process_dof_props(self, dof_props_asset, env_id):
@@ -816,21 +819,22 @@ class AirHockeyBase(LeggedRobot):
 
         # self.puck_own_side = self.puck_pos[:, 0] < 1.5
 
-        self.fail_buf = self.ee_outside_buf | self.puck_outside_buf
+        self.fail_buf = self.ee_outside_buf | self.puck_outside_buf | self.ee_colli_buf
 
         if self.cfg.rewards.reset_on_fail:
             self.reset_buf |= self.fail_buf
 
     def adapt_curriculum(self):
-        curri_level_up = self.success_buf & self.time_out_buf
+        curri_level_up = self.success_buf & self.reset_buf
         self.curri_level_buf = torch.clip(self.curri_level_buf - curri_level_up * 0.05, 0., 1.)
-        reduce_level_buf = self.puck_outside_buf | ~self.episode_hit_puck_buf  # timeout but puck still in our own side
-        reduce_level_buf &= self.time_out_buf
+        self.curri_reduce_buf+=(~curri_level_up&~self.fail_buf).float()
+        reduce_level_buf =self.curri_reduce_buf>10
+        self.curri_reduce_buf[reduce_level_buf]=0
         self.curri_level_buf = torch.clip(self.curri_level_buf + reduce_level_buf * 0.05, 0., 1.)
 
         if self.cfg.rewards.adaptive_goal:
-            self.goal[:, 0] = self.cfg.env.goal_x - (self.cfg.env.goal_x - 1.5) * self.curri_level_buf
-            self.goal[:, 1] = self.cfg.env.goal_width - (self.cfg.env.goal_width - 0.9) * self.curri_level_buf
+            self.goal[:, 0] = self.cfg.env.goal_x - (self.cfg.env.goal_x - 1.4) * self.curri_level_buf
+            self.goal[:, 1] = self.cfg.env.goal_width - (self.cfg.env.goal_width - 1.1) * self.curri_level_buf
             self.goal[:, 1] /= 2
 
     def compute_reward(self):
@@ -877,16 +881,20 @@ class AirHockeyBase(LeggedRobot):
     def _reward_ee_pos_subgoal(self, high_action):
         """ Reward for end-effector position
         """
-        return torch.norm(self.mid_ee_pos_diff, p=1, dim=1)
+        return torch.norm(self.mid_ee_pos_diff, p=2, dim=1)
 
     def _reward_ee_vel_subgoal(self, high_action):
         """ Reward for end-effector velocity
         """
         ee_vel_subgoal = high_action[:, :2]
-        return torch.norm(ee_vel_subgoal - self.ee_vel[:, :2], p=1, dim=1)
+        return torch.norm(ee_vel_subgoal - self.ee_vel[:, :2], p=2, dim=1)
 
     def _reward_dof_pos_subgoal(self, mid_action):
-        return torch.norm(self.low_dof_pos_diff, p=1, dim=1)
+        return torch.norm(self.low_dof_pos_diff, p=2, dim=1)
+
+    def _reward_dof_vel_subgoal(self, mid_action):
+        return torch.norm(self.low_dof_vel_diff, p=2, dim=1)
+
 
     def _reward_low_termination(self):
         return self.low_done_buf & self.low_timeout
@@ -962,33 +970,6 @@ class AirHockeyBase(LeggedRobot):
         self.episode_sums.update(mid_episode_sums)
         self.episode_sums.update(low_episode_sums)
 
-    def map_high_actions(self, actions):
-        """ Map actions to the environment
-        """
-        # clip actions to [-1, 1]
-        actions *= 0.001
-        actions=torch.clamp(actions, -1 ,1)
-        min_a=torch.tensor([0.6, -0.5, -2, -2], device=self.device)
-        max_a=torch.tensor([1.5, 0.5, 2, 2], device=self.device)
-        actions = actions*(max_a-min_a)/2+(max_a+min_a)/2
-        # actions[:, 0] = actions[:, 0] * 0.5 + 1
-        # actions[:, 1] = actions[:, 1] * 0.5
-        # actions[:, 2] *= 1.5
-        # map y to [-1, 1]
-        return actions
-
-    def map_mid_actions(self, actions):
-        # clip actions to -100, 100
-        actions *= 0.01
-        actions = torch.clamp(actions, -3.14, 3.14)
-        return actions
-
-    def map_low_actions(self, actions):
-        # clip actions to -100, 100
-        actions *= 0.01
-        actions = torch.clamp(actions, -200, 200)
-        return actions
-
     def _compute_reward_mid_low(self, high_action, mid_action):
         """ Compute rewards
         """
@@ -1026,15 +1007,15 @@ class AirHockeyBase(LeggedRobot):
         mid_vel_done_buf = self.mid_ee_vel_diff < self.cfg.rewards.min_ee_vel_diff
         self.mid_done_buf = mid_pos_done_buf & mid_vel_done_buf
         self.mid_done_buf = self.mid_done_buf.all(dim=1)
-        self.mid_done_buf |= self.reset_buf
+        self.mid_done_buf &= self.mid_timeout
         self.low_done_buf = self.low_dof_pos_diff < self.cfg.rewards.min_dof_pos_done
         # self.low_done_buf &= self.low_dof_vel_diff < self.cfg.rewards.min_dof_vel_done
         self.low_done_buf = self.low_done_buf.all(dim=1)
-        self.low_done_buf |= self.reset_buf
+        self.low_done_buf &= self.low_timeout
         return self.mid_done_buf, self.low_done_buf
 
     def get_done_levels(self):
-        return self.success_buf, self.mid_done_buf, self.low_done_buf
+        return self.success_buf | self.reset_buf | self.fail_buf, self.mid_done_buf | self.ee_outside_buf | self.reset_buf, self.low_done_buf | self.reset_buf
 
     def get_reward_mid_low(self):
         return self.mid_rew_buf, self.low_rew_buf
@@ -1063,3 +1044,6 @@ class AirHockeyBase(LeggedRobot):
 
     def _reward_dof_vel(self):
         return torch.sum(torch.square(self.dof_vel[:, self.ctrl_joints_idx]), dim=1)
+
+    def _reward_ee_collision(self):
+        return self.ee_colli_buf
