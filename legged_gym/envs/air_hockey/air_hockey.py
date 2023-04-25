@@ -819,18 +819,19 @@ class AirHockeyBase(LeggedRobot):
 
         # self.puck_own_side = self.puck_pos[:, 0] < 1.5
 
-        self.fail_buf = self.ee_outside_buf | self.puck_outside_buf | self.ee_colli_buf
+        self.fail_buf = self.ee_outside_buf | self.puck_outside_buf #| self.ee_colli_buf
 
         if self.cfg.rewards.reset_on_fail:
             self.reset_buf |= self.fail_buf
 
     def adapt_curriculum(self):
         curri_level_up = self.success_buf & self.reset_buf
-        self.curri_level_buf = torch.clip(self.curri_level_buf - curri_level_up * 0.05, 0., 1.)
+        self.curri_reduce_buf[curri_level_up]=0
+        self.curri_level_buf = torch.clip(self.curri_level_buf - curri_level_up * 0.05, 0., 1)
         self.curri_reduce_buf+=(~curri_level_up&~self.fail_buf).float()
         reduce_level_buf =self.curri_reduce_buf>10
         self.curri_reduce_buf[reduce_level_buf]=0
-        self.curri_level_buf = torch.clip(self.curri_level_buf + reduce_level_buf * 0.05, 0., 1.)
+        self.curri_level_buf = torch.clip(self.curri_level_buf + reduce_level_buf * 0.05, 0., 1)
 
         if self.cfg.rewards.adaptive_goal:
             self.goal[:, 0] = self.cfg.env.goal_x - (self.cfg.env.goal_x - 1.4) * self.curri_level_buf
