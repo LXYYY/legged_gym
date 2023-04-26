@@ -117,9 +117,9 @@ class AirHockeyCfg(LeggedRobotCfg):
             # hit_puck = 1
             # puck_x = 1
             # puck_y = 1
-            puck_outside_table = -10000
-            ee_outside_table=-10000
-            ee_collision=-100
+            puck_outside_table = -50000
+            # ee_outside_table=-10000
+            # ee_collision=-100
             # ee_outside_table=-100
             # ee_puck_contact = 1000
             # final_ee_vel = 10
@@ -131,17 +131,17 @@ class AirHockeyCfg(LeggedRobotCfg):
             # dof_acc = -2.5e-9
 
         class mid_scales:
-            ee_pos_subgoal = -1
-            mid_termination = 30
-            ee_vel_subgoal = -5
-            puck_outside_table = -10
+            ee_pos_subgoal = -5
+            mid_termination = 1
+            ee_vel_subgoal = -0.2
+            # puck_outside_table = -10
             ee_outside_table=-10000
-            ee_collision=-100
+            ee_collision=-10000
 
         class low_scales:
             dof_pos_subgoal = -1
             dof_vel_subgoal = -1
-            low_termination = 200
+            low_termination = 15
             # torques = -5e-7
             # dof_vel = -5e-2
             # dof_acc = -1e-8
@@ -150,9 +150,9 @@ class AirHockeyCfg(LeggedRobotCfg):
             torque_limits = -50
             torques = -5e-4
             jerk = -5e-7
-            puck_outside_table = -10000
-            ee_outside_table=-10000
-            ee_collision=-100
+            # puck_outside_table = -10000
+            # ee_outside_table=-10000
+            # ee_collision=-10
 
             # ee_outside_table = -20000
 
@@ -165,11 +165,11 @@ class AirHockeyCfg(LeggedRobotCfg):
 
         only_positive_rewards = False
         max_puck_vel = 0.4
-        min_puck_ee_dist = 0.05
+        min_puck_ee_dist = 0.01
         max_vel_trunc_dist = 0.5
         min_dof_pos_done = 0.002  # rad >~ 0.1 deg
         min_dof_vel_done = 0.002  # rad >~ 0.1 deg
-        min_ee_vel_diff = 0.05
+        min_ee_vel_diff = 0.01
 
         reset_on_success = True
         reset_on_fail = True
@@ -196,32 +196,32 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             desired_kl = 0.01
             # max_grad_norm = 0.1
             # learning_rate = 0.0001
-            num_mini_batches = 48
+            num_mini_batches = 8
 
         class mid(LeggedRobotCfgPPO.algorithm):
             use_clipped_value_loss = True
             desired_kl = 0.005
             # max_grad_norm = 0.1
             # learning_rate = 0.0001
-            num_mini_batches = 32
+            num_mini_batches = 8
 
         class low(LeggedRobotCfgPPO.algorithm):
             use_clipped_value_loss = True
             # desired_kl = 5e-4
             # max_grad_norm = 0.5
             # learning_rate = 0.0001
-            num_mini_batches = 24
+            num_mini_batches = 8
 
     class policy:
         class high(LeggedRobotCfgPPO.policy):
             num_actions = 4  # x,y,vel_x,vel_y
             num_obs = 20  # num_obs+mid_done
-            num_steps = 100  # 50 high actions per episode
-            num_steps_per_env = 20
+            num_steps = 20  # 50 high actions per episode
+            num_steps_per_env = 100
             actor_hidden_dims = [256, 128]
             critic_hidden_dims = [256, 128]
-            obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
-            init_noise_std = 0.02
+            obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, -1]
+            init_noise_std = 0.5
 
 
         class mid(LeggedRobotCfgPPO.policy):
@@ -231,8 +231,8 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             num_steps_per_env = 100
             actor_hidden_dims = [256, 128]
             critic_hidden_dims = [256, 128]
-            obs_idx = [6, 7, 8, 9, 10, 11, 12]
-            init_noise_std = 0.02
+            obs_idx = [6, 7, 8, 9, 10, 11, -1]
+            init_noise_std = 0.5
 
         class low(LeggedRobotCfgPPO.policy):
             num_actions = 3  # q, qd for 3 joints
@@ -241,5 +241,5 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             num_steps = 1  # 20 low actions per mid action
             actor_hidden_dims = [128, 64]
             critic_hidden_dims = [128, 64]
-            obs_idx = [6, 7, 8, 9, 10, 11, 12]
-            init_noise_std = 10
+            obs_idx = [6, 7, 8, 9, 10, 11, -1]
+            init_noise_std = 0.5

@@ -68,6 +68,7 @@ class AirHockeyBase(LeggedRobot):
         self._timestep = self.sim_params.dt
         self._n_intermediate_steps = self.cfg.control.decimation
         self.hit_range = torch.tensor(controller.hit_range, device=self.device, dtype=torch.float)
+        self.hit_range=torch.tensor([[-0.3, -0.2], [-0.3, 0.3]], device=self.device, dtype=torch.float)
 
     def get_reset_puck_pos(self):
         return torch.rand(self.num_envs, 2, device=self.device, dtype=torch.float) * (
@@ -309,7 +310,6 @@ class AirHockeyBase(LeggedRobot):
         self.mid_ee_pos_diff = ee_pos_subgoal - self.ee_pos[:, :2]
 
         ee_vel_subgoal = self.high_actions[:, 2:]
-        ee_vel_subgoal=torch.zeros_like(ee_vel_subgoal)
         self.mid_ee_vel_diff = ee_vel_subgoal - self.ee_vel[:, :2]
 
         hit_puck_buf = torch.abs(self.contact_forces[:, self.puck_body_idx, 0:2]) > self.cfg.env.contact_force_threshold
@@ -819,7 +819,7 @@ class AirHockeyBase(LeggedRobot):
 
         # self.puck_own_side = self.puck_pos[:, 0] < 1.5
 
-        self.fail_buf = self.ee_outside_buf | self.puck_outside_buf #| self.ee_colli_buf
+        self.fail_buf = self.ee_outside_buf | self.puck_outside_buf | self.ee_colli_buf
 
         if self.cfg.rewards.reset_on_fail:
             self.reset_buf |= self.fail_buf
@@ -827,11 +827,11 @@ class AirHockeyBase(LeggedRobot):
     def adapt_curriculum(self):
         curri_level_up = self.success_buf & self.reset_buf
         self.curri_reduce_buf[curri_level_up]=0
-        self.curri_level_buf = torch.clip(self.curri_level_buf - curri_level_up * 0.05, 0., 1)
+        self.curri_level_buf = torch.clip(self.curri_level_buf - curri_level_up * 0.05, 0., 0.7)
         self.curri_reduce_buf+=(~curri_level_up&~self.fail_buf).float()
-        reduce_level_buf =self.curri_reduce_buf>10
+        reduce_level_buf =self.curri_reduce_buf>self.max_episode_length
         self.curri_reduce_buf[reduce_level_buf]=0
-        self.curri_level_buf = torch.clip(self.curri_level_buf + reduce_level_buf * 0.05, 0., 1)
+        self.curri_level_buf = torch.clip(self.curri_level_buf + reduce_level_buf * 0.05, 0., 0.7)
 
         if self.cfg.rewards.adaptive_goal:
             self.goal[:, 0] = self.cfg.env.goal_x - (self.cfg.env.goal_x - 1.4) * self.curri_level_buf
@@ -901,7 +901,7 @@ class AirHockeyBase(LeggedRobot):
         return self.low_done_buf & self.low_timeout
 
     def _reward_mid_termination(self):
-        return self.mid_done_buf & self.mid_timeout
+        return (self.mid_done_buf & self.mid_timeout)*(1/torch.norm(self.mid_ee_vel_diff, p=2, dim=1))
 
     def _reward_high_termination(self):
         return self.success_buf
