@@ -8,7 +8,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 20000
+        num_envs = 20
         num_observations = 15  # original 12 + step + goal
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
@@ -213,6 +213,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             num_mini_batches = 8
 
     class policy:
+        use_meta=True
         class high(LeggedRobotCfgPPO.policy):
             num_actions = 4  # x,y,vel_x,vel_y
             num_obs = 20  # num_obs+mid_done
@@ -243,3 +244,8 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             critic_hidden_dims = [128, 64]
             obs_idx = [6, 7, 8, 9, 10, 11, -1]
             init_noise_std = 0.5
+
+        class meta:
+            state_dim = 15 + 4 + 6 + 3 + 1  # from env # from high policy # from mid policy # from low policy # from fail
+            hidden_dim = 64
+            num_layers = 3
