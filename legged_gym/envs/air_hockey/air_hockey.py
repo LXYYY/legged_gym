@@ -904,7 +904,7 @@ class AirHockeyBase(LeggedRobot):
         return (self.mid_done_buf & self.mid_timeout)*(1/torch.norm(self.mid_ee_vel_diff, p=2, dim=1))
 
     def _reward_high_termination(self):
-        return self.success_buf
+        return self.success_buf#*self.puck_pos[:,0]
 
     def _reward_time(self):
         return 1
@@ -1016,7 +1016,7 @@ class AirHockeyBase(LeggedRobot):
         return self.mid_done_buf, self.low_done_buf
 
     def get_done_levels(self):
-        return self.success_buf | self.reset_buf | self.fail_buf, self.mid_done_buf | self.ee_outside_buf | self.reset_buf, self.low_done_buf | self.reset_buf
+        return self.success_buf | self.reset_buf | self.fail_buf, self.mid_done_buf | self.fail_buf | self.reset_buf, self.low_done_buf | self.reset_buf | self.fail_buf
 
     def get_reward_mid_low(self):
         return self.mid_rew_buf, self.low_rew_buf

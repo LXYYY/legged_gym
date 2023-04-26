@@ -8,7 +8,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 600
+        num_envs = 16000
         num_observations = 15  # original 12 + step + goal
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
@@ -121,6 +121,8 @@ class AirHockeyCfg(LeggedRobotCfg):
             puck_outside_table = -100000
             ee_outside_table=-100000
             ee_collision=-100000
+            # ee_collision=-100000
+            
             # ee_outside_table=-10000
             # ee_collision=-100
             # ee_outside_table=-100
