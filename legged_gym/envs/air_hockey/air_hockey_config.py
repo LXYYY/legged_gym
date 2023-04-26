@@ -132,7 +132,7 @@ class AirHockeyCfg(LeggedRobotCfg):
 
         class mid_scales:
             ee_pos_subgoal = -5
-            mid_termination = 1
+            mid_termination = 10
             ee_vel_subgoal = -0.2
             # puck_outside_table = -10
             ee_outside_table=-10000
@@ -141,7 +141,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         class low_scales:
             dof_pos_subgoal = -1
             dof_vel_subgoal = -1
-            low_termination = 15
+            low_termination = 150
             # torques = -5e-7
             # dof_vel = -5e-2
             # dof_acc = -1e-8
