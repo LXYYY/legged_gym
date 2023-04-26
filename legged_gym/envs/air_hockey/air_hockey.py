@@ -1048,3 +1048,6 @@ class AirHockeyBase(LeggedRobot):
 
     def _reward_ee_collision(self):
         return self.ee_colli_buf
+
+    def _reward_no_success_no_fail(self):
+        return ~self.success_buf & ~self.fail_buf & self.time_out_buf
