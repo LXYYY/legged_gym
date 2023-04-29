@@ -8,7 +8,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 20000
+        num_envs = 20
         num_observations = 15  # original 12 + step + goal
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
@@ -116,6 +116,8 @@ class AirHockeyCfg(LeggedRobotCfg):
             # no_success_no_fail = -100000
             # ee_pos = -5
             puck_outside_table = -10000
+            ee_outside_table=-1000
+            ee_collision=-1000
             # hit_puck = 1
             puck_x = 10
             puck_y = 10
@@ -135,11 +137,9 @@ class AirHockeyCfg(LeggedRobotCfg):
             # dof_acc = -2.5e-9
 
         class mid_scales:
-            ee_pos_subgoal = -5
-            mid_termination = 100
-            ee_vel_subgoal = -0.2
-            ee_outside_table=-1000
-            ee_collision=-1000
+            ee_pos_subgoal = -100
+            mid_termination = 1
+            # ee_vel_subgoal = -0.2
             # puck_outside_table = -10
 
         class low_scales:
@@ -193,6 +193,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
         save_interval = 30  # check for potential saves every this many iterations
         experiment_name = 'test'
         run_name = ''
+        # noise_std=1
 
     class algorithm(LeggedRobotCfgPPO.algorithm):
         class high(LeggedRobotCfgPPO.algorithm):
@@ -219,8 +220,8 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
     class policy:
         use_meta=False
         class high(LeggedRobotCfgPPO.policy):
-            num_actions = 4  # x,y,vel_x,vel_y
-            num_obs = 20  # num_obs+mid_done
+            num_actions = 2  # x,y,vel_x,vel_y
+            num_obs = 18  # num_obs+mid_done
             num_steps = 20  # 50 high actions per episode
             num_steps_per_env = 100
             actor_hidden_dims = [128, 64]
@@ -231,7 +232,7 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
 
         class mid(LeggedRobotCfgPPO.policy):
             num_actions = 3  # q, qd for 3 joints
-            num_obs = 15  # 6+high_actions+low_done q, qd for 3 joints
+            num_obs = 13  # 6+high_actions+low_done q, qd for 3 joints
             num_steps = 20  # 5 mid action per high action
             num_steps_per_env = 100
             actor_hidden_dims = [256, 128]

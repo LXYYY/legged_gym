@@ -150,10 +150,12 @@ class AirHockeyBase(LeggedRobot):
         return clipped_pos, clipped_vel
     
     def update_high_actions(self, high_actions):
-        self.high_actions=high_actions
-        
+        self.update_ee_pos_vel()
+        self.high_actions = self.ee_pos[:,:2] + high_actions
+
     def update_mid_actions(self, mid_actions):
-        self.mid_actions=self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 0]+mid_actions
+        self.update_ctrl_joint_pos_vel()
+        self.mid_actions = self.joint_pos + mid_actions
 
     # action shape: (num_envs, 2: [q, dq], num_joints=3)
     def step(self, actions, low_timeout=None, mid_timeout=None, allow_reset=True):
@@ -286,19 +288,28 @@ class AirHockeyBase(LeggedRobot):
     def _post_physics_step_callback(self):
         pass
 
-    def compute_observations(self):
-        puck_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.puck_pos_idx, 0]
-        puck_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.puck_pos_idx, 1]
-        self.joint_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 0]
-        self.joint_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 1]
+    def update_ee_pos_vel(self):
         ee_pos = self.body_state.view(self.num_envs, self.num_bodies, -1)[:, self.ee_idx, 0:3]
         ee_vel = self.body_state.view(self.num_envs, self.num_bodies, -1)[:, self.ee_idx, 7:10]
+
+        self.ee_pos = self.to_2d_in_robot_frame(ee_pos, self.t_base_world, self.q_base_world, type='pos')
+        self.ee_vel = self.to_2d_in_robot_frame(ee_vel, self.t_base_world, self.q_base_world, type='vel')
+
+    def update_puck_pos_vel(self):
+        puck_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.puck_pos_idx, 0]
+        puck_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.puck_pos_idx, 1]
 
         self.puck_pos = self.to_2d_in_robot_frame(puck_pos, self.t_base_actor, self.q_base_actor, type='pos')
         self.puck_vel = self.to_2d_in_robot_frame(puck_vel, self.t_base_actor, self.q_base_actor, type='vel')
 
-        self.ee_pos = self.to_2d_in_robot_frame(ee_pos, self.t_base_world, self.q_base_world, type='pos')
-        self.ee_vel = self.to_2d_in_robot_frame(ee_vel, self.t_base_world, self.q_base_world, type='vel')
+    def update_ctrl_joint_pos_vel(self):
+        self.joint_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 0]
+        self.joint_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 1]
+
+    def compute_observations(self):
+        self.update_ee_pos_vel()
+        self.update_puck_pos_vel()
+        self.update_ctrl_joint_pos_vel()
 
         self.t_ee_puck = self.ee_pos[:, :2] - self.puck_pos[:, :2]
         self.t_ee_puck_norm = torch.norm(self.t_ee_puck, p=2, dim=1)
@@ -313,8 +324,9 @@ class AirHockeyBase(LeggedRobot):
         ee_pos_subgoal = self.high_actions[:, :2]
         self.mid_ee_pos_diff = ee_pos_subgoal - self.ee_pos[:, :2]
 
-        ee_vel_subgoal = self.high_actions[:, 2:]
-        self.mid_ee_vel_diff = ee_vel_subgoal - self.ee_vel[:, :2]
+        if self.high_actions.shape[1] == 4:
+            ee_vel_subgoal = self.high_actions[:, 2:]
+            self.mid_ee_vel_diff = ee_vel_subgoal - self.ee_vel[:, :2]
 
         hit_puck_buf = torch.abs(self.contact_forces[:, self.puck_body_idx, 0:2]) > self.cfg.rewards.max_contact_force
         hit_puck_buf = hit_puck_buf.any(dim=1)
@@ -1011,8 +1023,8 @@ class AirHockeyBase(LeggedRobot):
         """ Compute done
         """
         mid_pos_done_buf = self.mid_ee_pos_diff < self.cfg.rewards.min_puck_ee_dist
-        mid_vel_done_buf = self.mid_ee_vel_diff < self.cfg.rewards.min_ee_vel_diff
-        self.mid_done_buf = mid_pos_done_buf & mid_vel_done_buf
+        # mid_vel_done_buf = self.mid_ee_vel_diff < self.cfg.rewards.min_ee_vel_diff
+        self.mid_done_buf = mid_pos_done_buf #& mid_vel_done_buf
         self.mid_done_buf = self.mid_done_buf.all(dim=1)
         self.mid_done_buf &= self.mid_timeout
         self.low_done_buf = self.low_dof_pos_diff < self.cfg.rewards.min_dof_pos_done
