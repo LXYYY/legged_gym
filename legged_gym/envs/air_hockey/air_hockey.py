@@ -418,9 +418,9 @@ class AirHockeyBase(LeggedRobot):
         self.d_gains = torch.zeros(self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device,
                                    requires_grad=False)
-        self.mid_actions = torch.zeros(self.num_envs, 6, dtype=torch.float, device=self.device,
+        self.mid_actions = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device,
                                        requires_grad=False)
-        self.high_actions = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device,
+        self.high_actions = torch.zeros(self.num_envs, 2, dtype=torch.float, device=self.device,
                                         requires_grad=False)
 
         self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device,
@@ -919,7 +919,7 @@ class AirHockeyBase(LeggedRobot):
         return (self.low_done_buf & self.low_timeout) * velocity_penalty
 
     def _reward_mid_termination(self):
-        return (self.mid_done_buf & self.mid_timeout)*(1/torch.norm(self.mid_ee_vel_diff, p=2, dim=1))
+        return (self.mid_done_buf & self.mid_timeout)#*(1/torch.norm(self.mid_ee_vel_diff, p=2, dim=1))
 
     def _reward_high_termination(self):
         return self.success_buf*self.puck_pos[:,0]
