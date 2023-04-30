@@ -112,13 +112,13 @@ class AirHockeyCfg(LeggedRobotCfg):
     class rewards:
         class scales:
             # time_utl_success = -0.1
-            high_termination = 10000
+            high_termination = 50000
             # no_success_no_fail = -100000
-            ee_pos = -1
-            puck_outside_table = -1000
-            ee_outside_table=-1000
-            ee_collision=-1000
-            # ee_pd_limit=-100
+            ee_pos = -100
+            puck_outside_table = -10000
+            ee_outside_table=-10000
+            ee_collision=-10000
+            # ee_pd_limit=-20
             # hit_puck = 1
             # puck_x = 100
             # puck_y = 100
@@ -139,7 +139,7 @@ class AirHockeyCfg(LeggedRobotCfg):
 
         class mid_scales:
             ee_pos_subgoal = -100
-            mid_termination = 1
+            mid_termination = 5
             dof_qd_limit=-500
             # torques = -5e-4
             # jerk = -5e-7
@@ -147,9 +147,9 @@ class AirHockeyCfg(LeggedRobotCfg):
             # puck_outside_table = -10
 
         class low_scales:
-            dof_pos_subgoal = -1
+            dof_pos_subgoal = -10
             # dof_vel_subgoal = -1
-            low_termination = 1
+            low_termination = 5
             # torques = -5e-7
             # dof_acc = -1e-8
             # dof_pos_limits = -1e4
@@ -175,7 +175,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         min_puck_ee_dist = 0.001
         max_vel_trunc_dist = 0.5
         min_dof_pos_done = 0.002  # rad >~ 0.1 deg
-        min_dof_vel_done = 0.008  # rad >~ 0.1 deg
+        min_dof_vel_done = 10  # rad >~ 0.1 deg
         min_ee_vel_diff = 0.001
         max_dof_qd=0.6
         max_ee_pd=0.04
@@ -191,8 +191,8 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
 
     class runner(LeggedRobotCfgPPO.runner):
         num_steps_per_env = 500
-        resume = True
-        load_run = 'Apr30_02-23-47_'  # -1 = last run
+        resume = False
+        load_run = -1  # -1 = last run
         checkpoint = -1  # -1 = last saved model
         max_iterations = 3000  # number of policy updates
         save_interval = 30  # check for potential saves every this many iterations
@@ -229,8 +229,8 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             num_obs = 18  # num_obs+mid_done
             num_steps = 20  # 50 high actions per episode
             num_steps_per_env = 100
-            actor_hidden_dims = [128, 128]
-            critic_hidden_dims = [128, 128]
+            actor_hidden_dims = [256, 256]
+            critic_hidden_dims = [256, 256]
             obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, -1]
             init_noise_std = 0.3
 
@@ -239,8 +239,8 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             num_obs = 13  # 6+high_actions+low_done q, qd for 3 joints
             num_steps = 20  # 5 mid action per high action
             num_steps_per_env = 100
-            actor_hidden_dims = [256, 128]
-            critic_hidden_dims = [256, 128]
+            actor_hidden_dims = [128, 64]
+            critic_hidden_dims = [128, 64]
             obs_idx = [6, 7, 8, 9, 10, 11, -1]
             init_noise_std = 0.3
 
@@ -249,8 +249,8 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
             num_obs = 13  # 6+mid_actions q, qd for 3 joints
             num_steps_per_env = 40
             num_steps = 1  # 20 low actions per mid action
-            actor_hidden_dims = [64, 64]
-            critic_hidden_dims = [64, 64]
+            actor_hidden_dims = [128, 64]
+            critic_hidden_dims = [128, 64]
             obs_idx = [6, 7, 8, 9, 10, 11]
             init_noise_std = 0.01
 
