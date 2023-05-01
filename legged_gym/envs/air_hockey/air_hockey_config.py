@@ -8,7 +8,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 20000
+        num_envs = 200
         num_observations = 15  # original 12 + step + goal
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
@@ -121,6 +121,7 @@ class AirHockeyCfg(LeggedRobotCfg):
             # hit_puck = 1
             puck_x = 10
             puck_y = 10
+            jerk = -1e-7
 
             # ee_collision=-100000
             
@@ -188,7 +189,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         adaptive_goal = True
 
 class AirHockeyCfgPPO(LeggedRobotCfgPPO):
-    num_actions = 6
+    num_actions = 3
 
     class runner(LeggedRobotCfgPPO.runner):
         num_steps_per_env = 500
@@ -202,72 +203,67 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
         # noise_std=1
 
     class algorithm(LeggedRobotCfgPPO.algorithm):
-        class high(LeggedRobotCfgPPO.algorithm):
-            use_clipped_value_loss = True
-            # desired_kl = 1
-            # max_grad_norm = 0.1
-            # learning_rate = 0.00001
-            # num_mini_batches = 16
-            entropy_coef = 0.001
-            # schedule = 'fixed' # could be adaptive, fixed
-            # std_coef=0.01
+        pass
+        # class high(LeggedRobotCfgPPO.algorithm):
+        #     use_clipped_value_loss = True
+        #     # desired_kl = 1
+        #     # max_grad_norm = 0.1
+        #     # learning_rate = 0.00001
+        #     # num_mini_batches = 16
+        #     entropy_coef = 0.001
+        #     # schedule = 'fixed' # could be adaptive, fixed
+        #     # std_coef=0.01
+        #
+        # class mid(LeggedRobotCfgPPO.algorithm):
+        #     use_clipped_value_loss = True
+        #     # desired_kl = 0.5
+        #     # max_grad_norm = 0.1
+        #     # learning_rate = 0.00001
+        #     # num_mini_batches = 16
+        #     entropy_coef = 0.001
+        #     # schedule = 'fixed' # could be adaptive, fixed
+        #
+        #     # std_coef=0.01
+        #
+        # class low(LeggedRobotCfgPPO.algorithm):
+        #     use_clipped_value_loss = True
+        #     # desired_kl = 5e-4
+        #     # max_grad_norm = 0.1
+        #     # learning_rate = 0.00001
+        #     # num_mini_batches = 16
+        #     entropy_coef = 0.001
+        #     # schedule = 'fixed' # could be adaptive, fixed
+        #
+        #     # std_coef=0.01
 
-        class mid(LeggedRobotCfgPPO.algorithm):
-            use_clipped_value_loss = True
-            # desired_kl = 0.5
-            # max_grad_norm = 0.1
-            # learning_rate = 0.00001
-            # num_mini_batches = 16
-            entropy_coef = 0.001
-            # schedule = 'fixed' # could be adaptive, fixed
-
-            # std_coef=0.01
-
-        class low(LeggedRobotCfgPPO.algorithm):
-            use_clipped_value_loss = True
-            # desired_kl = 5e-4
-            # max_grad_norm = 0.1
-            # learning_rate = 0.00001
-            # num_mini_batches = 16
-            entropy_coef = 0.001
-            # schedule = 'fixed' # could be adaptive, fixed
-
-            # std_coef=0.01
-
-    class policy:
-        use_meta=False
-        class high(LeggedRobotCfgPPO.policy):
-            num_actions = 2  # x,y,vel_x,vel_y
-            num_obs = 18  # num_obs+mid_done
-            num_steps = 200  # 50 high actions per episode
-            num_steps_per_env = 20
-            actor_hidden_dims = [256, 256]
-            critic_hidden_dims = [256, 256]
-            obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, -1]
-            init_noise_std = 1
-
-        class mid(LeggedRobotCfgPPO.policy):
-            num_actions = 3  # q, qd for 3 joints
-            num_obs = 13  # 6+high_actions+low_done q, qd for 3 joints
-            num_steps = 20  # 5 mid action per high action
-            num_steps_per_env = 200
-            actor_hidden_dims = [128, 64]
-            critic_hidden_dims = [128, 64]
-            obs_idx = [6, 7, 8, 9, 10, 11, -1]
-            init_noise_std = 1
-
-        class low(LeggedRobotCfgPPO.policy):
-            num_actions = 3  # q, qd for 3 joints
-            num_obs = 13  # 6+mid_actions q, qd for 3 joints
-            num_steps_per_env = 40
-            num_steps = 1  # 20 low actions per mid action
-            actor_hidden_dims = [128, 64]
-            critic_hidden_dims = [128, 64]
-            obs_idx = [6, 7, 8, 9, 10, 11]
-            init_noise_std = 0.5
-
-        class meta:
-            use_lstm=False
-            state_dim = 15
-            hidden_dim = 64
-            output_size = 3
+    class policy(LeggedRobotCfgPPO.policy):
+        pass
+        # class high(LeggedRobotCfgPPO.policy):
+        #     num_actions = 2  # x,y,vel_x,vel_y
+        #     num_obs = 18  # num_obs+mid_done
+        #     num_steps = 200  # 50 high actions per episode
+        #     num_steps_per_env = 20
+        #     actor_hidden_dims = [256, 256]
+        #     critic_hidden_dims = [256, 256]
+        #     obs_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, -1]
+        #     init_noise_std = 1
+        #
+        # class mid(LeggedRobotCfgPPO.policy):
+        #     num_actions = 3  # q, qd for 3 joints
+        #     num_obs = 13  # 6+high_actions+low_done q, qd for 3 joints
+        #     num_steps = 20  # 5 mid action per high action
+        #     num_steps_per_env = 200
+        #     actor_hidden_dims = [128, 64]
+        #     critic_hidden_dims = [128, 64]
+        #     obs_idx = [6, 7, 8, 9, 10, 11, -1]
+        #     init_noise_std = 1
+        #
+        # class low(LeggedRobotCfgPPO.policy):
+        #     num_actions = 3  # q, qd for 3 joints
+        #     num_obs = 13  # 6+mid_actions q, qd for 3 joints
+        #     num_steps_per_env = 40
+        #     num_steps = 1  # 20 low actions per mid action
+        #     actor_hidden_dims = [128, 64]
+        #     critic_hidden_dims = [128, 64]
+        #     obs_idx = [6, 7, 8, 9, 10, 11]
+        #     init_noise_std = 0.5

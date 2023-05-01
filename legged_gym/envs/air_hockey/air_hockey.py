@@ -871,7 +871,7 @@ class AirHockeyBase(LeggedRobot):
         """
         # self.rewards
         super(AirHockeyBase, self).compute_reward()
-        self._compute_reward_mid_low(self.high_actions, self.mid_actions)
+        # self._compute_reward_mid_low(self.high_actions, self.mid_actions)
 
     def get_t_puck_goal(self):
         return (-self.puck_pos[:, :2]) + self.t_base_goal
