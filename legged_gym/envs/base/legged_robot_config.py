@@ -200,7 +200,7 @@ class LeggedRobotCfg(BaseConfig):
             contact_collection = 1 # 0: never, 1: last sub-step, 2: all sub-steps (default=2)
 
 class LeggedRobotCfgPPO(BaseConfig):
-    seed = 1
+    seed = 23145
     runner_class_name = 'OnPolicyRunner'
     class policy:
         init_noise_std = 1.0

@@ -682,7 +682,7 @@ class AirHockeyBase(LeggedRobot):
                 dof_props_asset[i]['stiffness'] = self.cfg.asset.solref[0]
                 dof_props_asset[i]['damping'] = self.cfg.asset.solref[1]
                 dof_props_asset[i]['velocity'] = 20
-                dof_props_asset[i]['effort'] = 100
+                dof_props_asset[i]['effort'] = 60
             # if name.endswith('joint_1'):
             #     dof_props_asset[i]['lower'] = -2.96
             #     dof_props_asset[i]['upper'] = 2.96
@@ -780,11 +780,11 @@ class AirHockeyBase(LeggedRobot):
 
         reverse_direction = torch.randint(2, (len(env_ids),), device=self.device)* 2 - 1
         self.dof_pos[env_ids, self.ctrl_joints_idx[0]] *= (torch.rand(len(env_ids),
-                                                                      device=self.device) * 0.6 - 0.3 + 1) * reverse_direction
+                                                                      device=self.device) * 0.4 - 0.2 + 1) * reverse_direction
         self.dof_pos[env_ids, self.ctrl_joints_idx[1]] *= (torch.rand(len(env_ids),
-                                                                      device=self.device) * 0.6 - 0.3 + 1) * reverse_direction
+                                                                      device=self.device) * 0.4 - 0.2 + 1) * reverse_direction
         self.dof_pos[env_ids, self.ctrl_joints_idx[2]] *= (torch.rand(len(env_ids),
-                                                                      device=self.device) * 0.6 - 0.3 + 1) * reverse_direction
+                                                                      device=self.device) * 0.4 - 0.2 + 1) * reverse_direction
         # reset puck pos
         reset_puck_pos = self.get_reset_puck_pos()
         self.dof_pos[env_ids, self.puck_pos_idx[0]] = reset_puck_pos[env_ids, 0]
@@ -847,7 +847,7 @@ class AirHockeyBase(LeggedRobot):
 
         # self.puck_own_side = self.puck_pos[:, 0] < 1.5
 
-        self.fail_buf = self.ee_outside_buf | self.puck_outside_buf | self.puck_collide_buf | puck_past_buf #| self.ee_colli_buf
+        self.fail_buf = self.ee_outside_buf | self.puck_outside_buf | self.ee_colli_buf
 
         if self.cfg.rewards.reset_on_fail:
             self.reset_buf |= self.fail_buf
@@ -931,7 +931,7 @@ class AirHockeyBase(LeggedRobot):
         return self.low_done_buf * velocity_penalty
 
     def _reward_mid_termination(self):
-        return self.mid_done_buf #& self.mid_timeout)#*(1/torch.norm(self.mid_ee_vel_diff, p=2, dim=1))
+        return self.mid_done_buf *(1-torch.norm(self.mid_ee_pos_diff, p=2, dim=1))
 
     def _reward_high_termination(self):
         return self.success_buf*(self.puck_pos[:,0]**2)
@@ -1038,11 +1038,11 @@ class AirHockeyBase(LeggedRobot):
         mid_vel_done_buf = self.mid_ee_vel_diff < self.cfg.rewards.min_ee_vel_diff
         self.mid_done_buf = mid_pos_done_buf & mid_vel_done_buf
         self.mid_done_buf = self.mid_done_buf.all(dim=1)
-        # self.mid_done_buf &= self.mid_timeout
+        self.mid_done_buf &= self.mid_timeout
         self.low_done_buf = self.low_dof_pos_diff < self.cfg.rewards.min_dof_pos_done
         # self.low_done_buf &= torch.norm(self.joint_vel) < self.cfg.rewards.min_dof_vel_done
         self.low_done_buf = self.low_done_buf.all(dim=1)
-        # self.low_done_buf &= self.low_timeout
+        self.low_done_buf &= self.low_timeout
         return self.mid_done_buf, self.low_done_buf
 
     def get_done_levels(self):
