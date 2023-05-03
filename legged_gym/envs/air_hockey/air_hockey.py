@@ -57,6 +57,7 @@ class AirHockeyBase(LeggedRobot):
         self.goal = torch.zeros((self.num_envs, 2), device=self.device, dtype=torch.float)
         self.goal[:, 0] = self.cfg.env.goal_x
         self.goal[:, 1] = self.cfg.env.goal_width / 2
+        self.goal_point=torch.tensor([self.cfg.env.goal_x, 0.0], device=self.device, dtype=torch.float)
 
     def clone_mujoco_controller(self, controller: PositionControlPlanar):
         # clone the mujoco controller and delete the original to reduce memory usage
@@ -288,6 +289,7 @@ class AirHockeyBase(LeggedRobot):
         self.compute_reward()
         self.adapt_curriculum()
 
+        self.reset_terminated()
 
     def _post_physics_step_callback(self):
         pass
@@ -305,6 +307,8 @@ class AirHockeyBase(LeggedRobot):
 
         self.puck_pos = self.to_2d_in_robot_frame(puck_pos, self.t_base_actor, self.q_base_actor, type='pos')
         self.puck_vel = self.to_2d_in_robot_frame(puck_vel, self.t_base_actor, self.q_base_actor, type='vel')
+
+        self.target_puck_vel= torch.nn.functional.normalize(self.goal_point-self.puck_pos[:, :2])
 
     def update_ctrl_joint_pos_vel(self):
         self.joint_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[:, self.ctrl_joints_idx, 0]
@@ -361,7 +365,7 @@ class AirHockeyBase(LeggedRobot):
         joint_vel = (self.joint_vel - (-200)) / (20 - (-200))
 
         self.obs_buf = torch.cat(
-            (norm_puck_pos, norm_puck_vel, joint_pos,joint_vel, self.goal, self.episode_length_buf.unsqueeze(1)),
+            (norm_puck_pos, norm_puck_vel, joint_pos,joint_vel, self.goal, (self.episode_length_buf/self.max_episode_length).unsqueeze(1)),
             dim=1)
 
         if self.add_noise:
@@ -831,8 +835,11 @@ class AirHockeyBase(LeggedRobot):
         """
         super(AirHockeyBase, self).check_termination()
 
-        success_buf = self.puck_pos[:, 0] >= self.goal[:, 0]
-        success_buf &= torch.abs(self.puck_pos[:, 1]) <= self.goal[:, 1]
+        # success_buf = self.puck_pos[:, 0] >= self.goal[:, 0]
+        # success_buf &= torch.abs(self.puck_pos[:, 1]) <= self.goal[:, 1]
+
+        success_buf=self.puck_vel>0.1
+        success_buf=success_buf.any(dim=-1)
 
         puck_past_buf= self.puck_pos[:, 0] >= self.goal[:, 0] + 0.1
         puck_past_buf &= ~success_buf
@@ -847,7 +854,7 @@ class AirHockeyBase(LeggedRobot):
 
         # self.puck_own_side = self.puck_pos[:, 0] < 1.5
 
-        self.fail_buf = self.ee_outside_buf | self.puck_outside_buf | self.ee_colli_buf
+        self.fail_buf = self.ee_outside_buf | self.puck_outside_buf #| self.ee_colli_buf
 
         if self.cfg.rewards.reset_on_fail:
             self.reset_buf |= self.fail_buf
@@ -857,7 +864,7 @@ class AirHockeyBase(LeggedRobot):
         self.curri_reduce_buf[curri_level_up]=0
         self.curri_level_buf = torch.clip(self.curri_level_buf - curri_level_up * 0.1, 0., 0.6)
         self.curri_reduce_buf+=1
-        reduce_level_buf =self.curri_reduce_buf>1000
+        reduce_level_buf =self.curri_reduce_buf>2*self.max_episode_length
         self.curri_reduce_buf[reduce_level_buf]=0
         self.curri_level_buf = torch.clip(self.curri_level_buf + reduce_level_buf * 0.1, 0., 0.6)
 
@@ -934,7 +941,8 @@ class AirHockeyBase(LeggedRobot):
         return self.mid_done_buf *(1-torch.norm(self.mid_ee_pos_diff, p=2, dim=1))
 
     def _reward_high_termination(self):
-        return self.success_buf*(self.puck_pos[:,0]**2)
+        # success_buf times the difference between the correct velocity and the actual velocity
+        return torch.norm(self.puck_vel[:,:2]-self.target_puck_vel, p=2, dim=1)
 
     def _reward_time(self):
         return 1

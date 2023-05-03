@@ -8,7 +8,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         super().__init__()
 
     class env(LeggedRobotCfg.env):
-        num_envs = 200
+        num_envs = 10000
         num_observations = 15  # original 12 + step + goal
         num_privileged_obs = None  # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 11
@@ -40,7 +40,7 @@ class AirHockeyCfg(LeggedRobotCfg):
         # penalize_contacts_on = ['planar_robot_1/body_ee']
 
     class sim(LeggedRobotCfg.sim):
-        dt = 0.001
+        dt = 0.005
 
     class control(LeggedRobotCfg.control):
         decimation = 1
@@ -111,17 +111,19 @@ class AirHockeyCfg(LeggedRobotCfg):
 
     class rewards:
         class scales:
-            # time_utl_success = -0.1
-            high_termination = 10000
+            time_utl_success = -1
+            high_termination = -50
             # no_success_no_fail = -100000
-            ee_pos = -10
-            puck_outside_table = -50000
-            ee_collision=-1000
+            ee_pos = -50
+            puck_outside_table = -1000
+            ee_collision=-100
+            ee_outside_table=-2000
             # ee_pd_limit=-20
             # hit_puck = 1
-            puck_x = 10
-            puck_y = 10
-            jerk = -1e-7
+            # puck_x = 10
+            # puck_y = 10
+            torques = -1e-3
+            jerk = -1e-3
 
             # ee_collision=-100000
             
@@ -192,18 +194,22 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
     num_actions = 3
 
     class runner(LeggedRobotCfgPPO.runner):
-        num_steps_per_env = 500
+        num_steps_per_env = 200
         resume = False
         load_run = -1 #'Apr30_21-33-14_'  # -1 = last run
         checkpoint = -1  # -1 = last saved model
-        max_iterations = 3000  # number of policy updates
+        max_iterations = 6000  # number of policy updates
         save_interval = 30  # check for potential saves every this many iterations
         experiment_name = 'test'
         run_name = ''
+        # policy_class_name = 'ActorCriticRecurrent'
+        # rnn_type = 'lstm'
+        # rnn_hidden_size = 256
+        # rnn_num_layers = 1
         # noise_std=1
 
     class algorithm(LeggedRobotCfgPPO.algorithm):
-        pass
+        entropy_coef = 0.1
         # class high(LeggedRobotCfgPPO.algorithm):
         #     use_clipped_value_loss = True
         #     # desired_kl = 1
@@ -237,7 +243,10 @@ class AirHockeyCfgPPO(LeggedRobotCfgPPO):
         #     # std_coef=0.01
 
     class policy(LeggedRobotCfgPPO.policy):
-        pass
+        init_noise_std = 2
+        # actor_hidden_dims = [512, 256]
+        # critic_hidden_dims = [512, 256]
+        # pass
         # class high(LeggedRobotCfgPPO.policy):
         #     num_actions = 2  # x,y,vel_x,vel_y
         #     num_obs = 18  # num_obs+mid_done
